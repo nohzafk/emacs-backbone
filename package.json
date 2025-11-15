@@ -1,0 +1,10 @@
+{
+  "type": "module",
+  "optionalDependencies": {
+    "bufferutil": "^4.0.9"
+  },
+  "dependencies": {
+    "node-gyp-build": "^4.8.4",
+    "ws": "^8.18.1"
+  }
+}

@@ -1,0 +1,29 @@
+# Gleam build artifacts
+*.beam
+*.ez
+build/
+erl_crash.dump
+
+# Node.js dependencies
+node_modules/
+
+# Emacs runtime artifacts (should not appear in core, but ignore just in case)
+eln-cache/
+elpaca/
+.cache/
+tree-sitter/
+
+# Emacs user state files
+.projectile-cache.eld
+history.el
+history
+recentf
+tramp
+places
+projects
+/.mc-lists.el
+blink-search/
+blink-search.db
+
+# Environment variable dump (may contain sensitive data)
+env
