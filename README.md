@@ -235,6 +235,13 @@ This replaces the traditional Emacs configuration chaos with a **predictable, re
 
    The core will automatically load your configuration from `~/.config/backbone/`.
 
+### Example Configuration
+
+For a complete, real-world example of an Emacs Backbone configuration, see:
+
+**[nohzafk's literate-darwin config](https://github.com/nohzafk/literate-darwin/blob/main/modules/emacs/backbone/config.org)**
+
+
 ## Configuration
 
 ### Customization Variables
