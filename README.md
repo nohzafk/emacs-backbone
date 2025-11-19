@@ -4,29 +4,40 @@ An external conductor program (written in Gleam) that orchestrates Emacs configu
 
 ## Motivation
 
-After over a decade of using Emacs, I grew frustrated with a persistent problem: **my configuration would break unexpectedly**, and I'd have to debug it before I could actually get work done. Traditional Emacs configuration approaches lack the determinism and reproducibility I needed.
+After over a decade of using Emacs, I grew frustrated with a persistent problem: **my configuration would break unexpectedly**, and I'd have to debug it before I could actually get work done.
 
-**The core issues:**
+**The root cause: no true dependency resolution**
 
-- **`eval-after-load` doesn't guarantee execution order** - This leads to subtle, hard-to-reproduce bugs where configuration blocks execute in unpredictable sequences depending on package load timing
-- **No dependency resolution** - There's no built-in way to declare "configure package B only after package A is ready"
-- **Non-deterministic behavior** - The same configuration could behave differently across restarts or machines
-- **Difficult to debug** - Race conditions and timing issues create bugs that are nearly impossible to track down
+Traditional Emacs configuration tools don't actually resolve dependencies. `with-eval-after-load` is just a convenience macro that defers code execution until a library loads - it doesn't guarantee execution order across multiple deferred blocks. Similarly, use-package's `:after` keyword delays loading until dependencies are available, but doesn't provide deterministic ordering. There's no built-in way to declare "configure B only after A is fully ready" and have the system guarantee it.
 
-**Why existing solutions fall short:**
+This leads to non-deterministic behavior where the same configuration could behave differently across restarts or machines. Race conditions and timing issues create bugs that are nearly impossible to track down.
 
-- **use-package** helps with organization but doesn't solve the fundamental ordering problem
-- **Doom/Spacemacs** are batteries-included distributions, not frameworks for building your own config
-- **Manual `with-eval-after-load` chains** become unmaintainable in complex configurations
+**The lazy loading dilemma**
 
-**What actually matters:**
+I've been a Doom Emacs user for years with heavily customized config. Doom's lazy loading is excellent for fast startup, but I kept hitting the same frustrating pattern:
 
-Startup time is often cited as a concern, but **Emacs is a long-lived process** - it runs for days or weeks at a time. What matters is:
-- **Deterministic, reproducible behavior** - the same config produces the same results, always
-- **Explicit dependency ordering** - configuration blocks execute in a well-defined, predictable order
-- **Debuggability** - when something breaks, you can understand why
+1. Make a mistake in my config or custom elisp
+2. Error only appears when that feature loads - could be hours into my session
+3. Hard to debug because the context is lost
 
-Emacs Backbone solves these problems by treating configuration as a **dependency graph** that's resolved deterministically using topological sorting, inspired by NixOS principles. Every package and configuration unit declares its dependencies explicitly, and the system ensures they execute in the correct order - every single time.
+The problem isn't lazy loading itself - it's that **errors hide until runtime**. Traditional approaches optimize for startup speed but defer error discovery.
+
+**The fail-fast philosophy**
+
+That's why Emacs Backbone takes the opposite approach: load everything at startup in deterministic order and encounter all errors immediately. Fix them right away while the context is fresh. Once Emacs starts successfully, you can be confident nothing will break hours into your session. If you comment out a package, its config-unit automatically skips - no manual cleanup needed.
+
+This trades a few extra seconds at startup for reliability. Since Emacs is a long-lived process that runs for days or weeks, I'd rather fail fast at startup than risk hours of lost work from a mid-session crash.
+
+**What Emacs Backbone provides**
+
+Inspired by NixOS principles, Emacs Backbone treats configuration as a dependency graph that's resolved deterministically using topological sorting:
+
+- **True dependency resolution** - Declare dependencies explicitly, the system figures out the order
+- **Deterministic execution** - Same declarations always produce the same order
+- **Immediate feedback** - All configuration errors surface at startup
+- **Reproducible behavior** - Your config works the same way every time, on every machine
+
+Every package and configuration unit declares its dependencies explicitly, and the system ensures they execute in the correct order - every single time.
 
 **Why Gleam?**
 
