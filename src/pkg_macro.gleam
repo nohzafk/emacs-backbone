@@ -6,12 +6,20 @@ import gleam/list
 import gleam/option.{None, Some}
 import gleam/string
 import monadic.{type CommandResult, bind, fail_with, pure}
-import pkg.{type Pkg, type Recipe, Branch, Pkg, Recipe, Tag, Version}
+import pkg.{
+  type Pkg, type Recipe, Branch, Local, Pkg, Remote, RemoteRecipe, Tag, Version,
+}
 import pkg_utils
 import simplifile
 
-/// Create a decoder for Recipe type
-fn recipe_decoder() -> decode.Decoder(Recipe) {
+/// Create a decoder for local recipe (just a path string)
+fn local_recipe_decoder() -> decode.Decoder(Recipe) {
+  use local_path <- decode.field("local", decode.string)
+  Local(local_path) |> decode.success
+}
+
+/// Create a decoder for remote Recipe type
+fn remote_recipe_decoder() -> decode.Decoder(Recipe) {
   use host <- decode.field("host", decode.string)
   use repo <- decode.field("repo", decode.string)
   use branch <- decode.optional_field(
@@ -44,8 +52,19 @@ fn recipe_decoder() -> decode.Decoder(Recipe) {
     _, _, _ -> Branch("main")
   }
 
-  Recipe(host: host, repo: repo, ref: ref, files: files, wait: wait)
+  Remote(RemoteRecipe(
+    host: host,
+    repo: repo,
+    ref: ref,
+    files: files,
+    wait: wait,
+  ))
   |> decode.success
+}
+
+/// Create a decoder for Recipe type (tries local first, then remote)
+fn recipe_decoder() -> decode.Decoder(Recipe) {
+  decode.one_of(local_recipe_decoder(), [remote_recipe_decoder()])
 }
 
 /// Create a decoder for Pkg type

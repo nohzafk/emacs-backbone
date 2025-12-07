@@ -10,18 +10,23 @@
   (setq emacs-backbone-packages '()))
 
 (cl-defmacro package!
-  (name &rest args &key repo host branch tag files no-compilation deps)
+  (name &rest args &key repo host branch tag files no-compilation deps local)
   "Define a package for installation and management by the emacs-backbone system.
 
 This macro registers a package specification with the emacs-backbone package
-management system. It supports both standard packages from package archives
-and packages fetched directly from version control repositories.
+management system. It supports both standard packages from package archives,
+packages fetched directly from version control repositories, and local packages.
 
 Arguments:
   NAME      Symbol or string that identifies the package.
   ARGS      Property list of package attributes (all optional).
 
 Supported properties:
+  :local STRING           Path to a local package directory.
+                          When specified, the package is loaded from a local path
+                          instead of fetching from a remote repository.
+                          Example: :local \"~/projects/my-package\"
+
   :repo STRING            Repository path (e.g., \"user/repo\").
                           When specified, the package is fetched from version control
                           rather than a package archive.
@@ -66,6 +71,10 @@ Examples:
     :repo \"emacs-evil/evil-collection\"
     :no-compilation t)
 
+  ;; Local package for development/testing:
+  (package! cli2eli
+    :local \"~/projects/cli2eli\")
+
   ;; Package with dependencies:
   (package! emacsql)
   (package! dash)
@@ -95,6 +104,7 @@ handles dependency resolution, verification and installation sequencing."
     (cl-callf plist-put args :files `(quote ,files)))
 
   (let* ((pkg-name (if (stringp name) name (symbol-name name)))
+         (local (plist-get args :local))
          (repo (plist-get args :repo))
          (host (or (plist-get args :host) "github"))
          (branch (plist-get args :branch))
@@ -109,8 +119,13 @@ handles dependency resolution, verification and installation sequencing."
       (setq deps (list deps)))
 
     `(let ((pkg (list :name ,pkg-name)))
-       ;; Add recipe if repo is provided
-       (when ,repo
+       ;; Add local recipe if local path is provided
+       (when ,local
+         (setq pkg (plist-put pkg :recipe
+                              (list :local (expand-file-name ,local)))))
+
+       ;; Add remote recipe if repo is provided (and not local)
+       (when (and ,repo (not ,local))
          (setq pkg (plist-put pkg :recipe
                               (list :host ,host
                                     :repo ,repo

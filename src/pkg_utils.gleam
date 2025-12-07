@@ -2,7 +2,7 @@ import gleam/dict
 import gleam/list
 import gleam/option.{None, Some}
 import gleam/string
-import pkg.{type Pkg, Branch, Tag, Version}
+import pkg.{type Pkg, type Recipe, Branch, Local, Remote, Tag, Version}
 import resolver.{type Node, type NodeMap, Node}
 import simplifile
 
@@ -27,39 +27,12 @@ fn generate_packages_el_with_notifications(
 ) -> Result(Nil, simplifile.FileError) {
   // Helper function to convert a single Pkg to its Elisp representation
   let pkg_to_elisp = fn(pkg: Pkg) -> String {
-    let recipe = case pkg.recipe {
+    let recipe_str = case pkg.recipe {
       None -> ""
-      Some(recipe) -> {
-        let host_el = ":host " <> recipe.host
-        let repo_el = ":repo \"" <> recipe.repo <> "\""
-        let ref_el = case recipe.ref {
-          Branch(branch) -> ":branch \"" <> branch <> "\""
-          Version(version) -> ":ref \"" <> version <> "\""
-          Tag(tag) -> ":tag \"" <> tag <> "\""
-        }
-        let files_el = case recipe.files {
-          None -> ""
-          Some(files) ->
-            "\n  :files ("
-            <> {
-              files
-              |> list.map(fn(file) { "\"" <> file <> "\"" })
-              |> string.join(" ")
-            }
-            <> ")"
-        }
-        let no_compilation_el = case pkg.no_compilation {
-          Some(True) -> "\n  :build (:not elpaca--byte-compile)"
-          _ -> ""
-        }
-        // Use the fields from the bound 'recipe'
-        { [host_el, repo_el, ref_el] |> string.join(" ") }
-        <> files_el
-        <> no_compilation_el
-      }
+      Some(recipe) -> recipe_to_elisp(recipe, pkg)
     }
 
-    let straight_config = case recipe |> string.trim {
+    let straight_config = case recipe_str |> string.trim {
       "" -> "\n  :ensure t"
       _ as parts -> "\n  :ensure (" <> parts <> ")"
     }
@@ -92,6 +65,48 @@ fn generate_packages_el_with_notifications(
 
 " }
   |> simplifile.write(to: path)
+}
+
+/// Convert a Recipe to its Elisp representation for Elpaca
+fn recipe_to_elisp(recipe: Recipe, pkg: Pkg) -> String {
+  case recipe {
+    Local(path) -> {
+      // For local packages, use :repo with local path (no :host)
+      // Per elpaca docs: ":repo is a local file path or remote URL when :host is not used"
+      let no_compilation_el = case pkg.no_compilation {
+        Some(True) -> " :build (:not elpaca--byte-compile)"
+        _ -> ""
+      }
+      ":repo \"" <> path <> "\"" <> no_compilation_el
+    }
+    Remote(r) -> {
+      let host_el = ":host " <> r.host
+      let repo_el = ":repo \"" <> r.repo <> "\""
+      let ref_el = case r.ref {
+        Branch(branch) -> ":branch \"" <> branch <> "\""
+        Version(version) -> ":ref \"" <> version <> "\""
+        Tag(tag) -> ":tag \"" <> tag <> "\""
+      }
+      let files_el = case r.files {
+        None -> ""
+        Some(files) ->
+          "\n  :files ("
+          <> {
+            files
+            |> list.map(fn(file) { "\"" <> file <> "\"" })
+            |> string.join(" ")
+          }
+          <> ")"
+      }
+      let no_compilation_el = case pkg.no_compilation {
+        Some(True) -> "\n  :build (:not elpaca--byte-compile)"
+        _ -> ""
+      }
+      { [host_el, repo_el, ref_el] |> string.join(" ") }
+      <> files_el
+      <> no_compilation_el
+    }
+  }
 }
 
 fn pkg_to_node(pkg: Pkg) -> Node(Pkg) {

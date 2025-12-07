@@ -6,14 +6,21 @@ pub type Ref {
   Version(String)
 }
 
-pub type Recipe {
-  Recipe(
+/// Recipe for remote packages (from git repos)
+pub type RemoteRecipe {
+  RemoteRecipe(
     host: String,
     repo: String,
     ref: Ref,
     files: Option(List(String)),
     wait: Option(Bool),
   )
+}
+
+/// Recipe can be either remote (git) or local (filesystem path)
+pub type Recipe {
+  Remote(RemoteRecipe)
+  Local(String)
 }
 
 pub type Pkg {
@@ -32,13 +39,13 @@ pub fn simple_pacakge(name name) {
 pub fn github_package(name name, repo repo, ref ref) {
   Pkg(
     name: name,
-    recipe: Recipe(
+    recipe: Remote(RemoteRecipe(
       host: "github",
       repo: repo,
       ref: ref,
       files: None,
       wait: Some(False),
-    )
+    ))
       |> Some,
     deps: None,
     no_compilation: Some(False),
@@ -53,7 +60,12 @@ pub fn files(pkg: Pkg, files: List(String)) {
   Pkg(
     ..pkg,
     recipe: pkg.recipe
-      |> option.map(fn(recipe) { Recipe(..recipe, files: Some(files)) }),
+      |> option.map(fn(recipe) {
+        case recipe {
+          Remote(r) -> Remote(RemoteRecipe(..r, files: Some(files)))
+          Local(_) -> recipe  // Local packages don't support files filter
+        }
+      }),
   )
 }
 
