@@ -10,8 +10,8 @@ import { updatePackageTracker } from "./package_tracker_ffi.mjs";
 
 let DEBUG = false;
 
-export function setupServer(conductorPort, messageHandler) {
-    const wss = new WebSocketServer({ port: `${conductorPort}` });
+export function setupServer(backbonePort, messageHandler) {
+    const wss = new WebSocketServer({ port: `${backbonePort}` });
 
     wss.on("connection", function connection(ws) {
         ws.on("error", function message(error) {

@@ -3,7 +3,7 @@
 
 ;; Global variable to store package information
 (defvar emacs-backbone-packages '()
-  "Global storage for package definitions used by Gleam conductor.")
+  "Global storage for package definitions used by the Backbone system.")
 
 (defun emacs-backbone-reset-packages ()
   "Reset the global packages list."

@@ -22,7 +22,7 @@ pub type PackageTracker {
 }
 
 pub fn main() {
-  let assert [conductor_port, emacs_port] = argv.load().arguments
+  let assert [backbone_port, emacs_port] = argv.load().arguments
 
   let pws = websocket.setup_client(emacs_port)
 
@@ -37,8 +37,8 @@ pub fn main() {
       eval: emacs.eval_with_return(port: emacs_port, timeout_seconds: 5),
     )
 
-  websocket.setup_server(conductor_port, handler(context))
-  io.println("Server listening on port " <> conductor_port)
+  websocket.setup_server(backbone_port, handler(context))
+  io.println("Server listening on port " <> backbone_port)
 }
 
 fn handler(context: EmacsContext) {

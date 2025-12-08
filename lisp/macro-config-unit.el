@@ -3,7 +3,7 @@
 
 ;; Global variable to store config units information
 (defvar emacs-backbone-units '()
-  "Global storage for config unit definitions used by Gleam conductor.")
+  "Global storage for config unit definitions used by the Backbone system.")
 
 (defun emacs-backbone-reset-units ()
   "Reset the global units list."
@@ -35,7 +35,7 @@ Optional properties:
                 Example: :after (helm ivy) or :after org
 
 The macro registers the unit with the `emacs-backbone-units` list for
-processing by the conductor system.
+processing by the backbone system.
 
 Examples:
 

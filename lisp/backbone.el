@@ -3,7 +3,7 @@
 (require 'websocket)
 (require 'ansi-color)
 
-(defvar emacs-backbone-buffer-name "*emacs-conductor*")
+(defvar emacs-backbone-buffer-name "*emacs-backbone*")
 (defvar emacs-backbone-enable-debug nil)
 (defvar emacs-backbone--initialized nil)
 (defvar emacs-backbone--process nil)
@@ -46,7 +46,7 @@ or searches PATH for 'gleam' executable."
 (cl-defmacro emacs-backbone-start ()
   (if (not (null emacs-backbone--process))
       (message "[Backbone] processs has started.")
-    (let* ((conductor-port (emacs-backbone-get-free-port))
+    (let* ((backbone-port (emacs-backbone-get-free-port))
            (emacs-port (emacs-backbone-get-free-port))
            (server (intern "emacs-backbone-server"))
            (process (intern "emacs-backbone-process"))
@@ -83,7 +83,7 @@ or searches PATH for 'gleam' executable."
                                        (message "Received malformed JSON in text frame: %S" text)))))))
 
                 :on-open (lambda (_websocket)
-                           (setq ,client (websocket-open (format "ws://127.0.0.1:%s" ,conductor-port)))
+                           (setq ,client (websocket-open (format "ws://127.0.0.1:%s" ,backbone-port)))
                            (unless emacs-backbone--initialized
                              (emacs-backbone--call "init")
                              (setq emacs-backbone--initialized t)))
@@ -106,7 +106,7 @@ or searches PATH for 'gleam' executable."
                                 (error nil))))))
 
          (setq ,process
-               (start-process "emacs-backbone" ,process-buffer emacs-backbone-gleam-executable "run" "--" ,conductor-port ,emacs-port))
+               (start-process "emacs-backbone" ,process-buffer emacs-backbone-gleam-executable "run" "--" ,backbone-port ,emacs-port))
 
          (set-process-query-on-exit-flag ,process nil)
 

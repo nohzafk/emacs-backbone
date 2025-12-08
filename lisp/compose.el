@@ -23,7 +23,7 @@
   (emacs-backbone--call "init" emacs-backbone-buffer-name))
 
 (defvar-keymap emacs-backbone-prefix-map
-  :doc "Conductor Utilities"
+  :doc "Backbone Utilities"
   "e" #'emacs-backbone-tangle-config
   "r" #'emacs-backbone-reload-config)
 

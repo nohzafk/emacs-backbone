@@ -1,6 +1,6 @@
 # Emacs Backbone
 
-An external conductor program (written in Gleam) that orchestrates Emacs configuration through bidirectional WebSocket communication, providing deterministic, dependency-aware package installation and configuration management inspired by NixOS principles.
+An external orchestration program (written in Gleam) that manages Emacs configuration through bidirectional WebSocket communication, providing deterministic, dependency-aware package installation and configuration management inspired by NixOS principles.
 
 ## Motivation
 
@@ -304,7 +304,7 @@ Enable verbose logging and debugging output:
 
 ```bash
 gleam build              # Build the Gleam backend
-gleam run                # Run (requires conductor_port and emacs_port args)
+gleam run                # Run (requires backbone_port and emacs_port args)
 gleam test               # Run tests
 npm install              # Install Node.js WebSocket dependencies
 ```
