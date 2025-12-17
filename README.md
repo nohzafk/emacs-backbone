@@ -146,7 +146,7 @@ This replaces the traditional Emacs configuration chaos with a **predictable, re
 ├── init.el                                # Core initialization
 ├── early-init.el                          # Early initialization
 ├── gleam.toml                             # Gleam project config
-└── package.json                           # Node.js dependencies
+└── package.json                           # Bun/JavaScript dependencies
 
 ~/.config/backbone/                 # User configuration (you create this)
 ├── early-init.el                          # Your early initialization (optional)
@@ -170,7 +170,21 @@ This replaces the traditional Emacs configuration chaos with a **predictable, re
 
 - **Emacs** 29+ (with native compilation support recommended)
 - **Gleam** (for the backend orchestrator)
-- **Node.js** (for WebSocket FFI dependencies)
+- **Bun** (JavaScript runtime for WebSocket FFI)
+
+#### Installing Bun
+
+macOS and Linux:
+```bash
+curl -fsSL https://bun.sh/install | bash
+```
+
+Windows:
+```powershell
+powershell -c "irm bun.sh/install.ps1 | iex"
+```
+
+For more installation options, see [Bun installation docs](https://bun.sh/docs/installation).
 
 ### Core Installation
 
@@ -181,10 +195,10 @@ This replaces the traditional Emacs configuration chaos with a **predictable, re
    cd ~/.config/emacs
    ```
 
-2. **Install Node.js dependencies:**
+2. **Install dependencies:**
 
    ```bash
-   npm install
+   bun install
    ```
 
 3. **Build the Gleam backend:**
@@ -306,7 +320,7 @@ Enable verbose logging and debugging output:
 gleam build              # Build the Gleam backend
 gleam run                # Run (requires backbone_port and emacs_port args)
 gleam test               # Run tests
-npm install              # Install Node.js WebSocket dependencies
+bun install              # Install dependencies
 ```
 
 ### Project Structure
@@ -335,8 +349,9 @@ If you see "Emacs Backbone user config not found", ensure:
 
 Check:
 1. Gleam is installed: `which gleam`
-2. The `emacs-backbone-gleam-executable` variable is correct
-3. You've run `npm install` in the core directory
+2. Bun is installed: `which bun`
+3. The `emacs-backbone-gleam-executable` variable is correct
+4. You've run `bun install` in the core directory
 
 ### Package installation fails
 
