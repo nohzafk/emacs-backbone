@@ -1,5 +1,3 @@
-import { WebSocket, WebSocketServer } from "ws";
-
 import {
     CommandEvent,
     HandleErrorEvent,
@@ -9,91 +7,101 @@ import {
 import { updatePackageTracker } from "./package_tracker_ffi.mjs";
 
 let DEBUG = false;
+let serverInstance = null;
 
 export function setupServer(backbonePort, messageHandler) {
-    const wss = new WebSocketServer({ port: `${backbonePort}` });
-
-    wss.on("connection", function connection(ws) {
-        ws.on("error", function message(error) {
-            messageHandler(new ErrorEvent(error));
-        });
-
-        // ws.on("close", () => {
-        //     console.log("Emacs client disconnected");
-        // });
-
-        ws.on("message", function message(data) {
-            // Decode buffer to string
-            const stringData = data.toString("utf-8");
-            let parsedData;
-            try {
-                // data is type of JSON array
-                parsedData = JSON.parse(stringData);
-                if (DEBUG) {
-                    const now = new Date();
-                    console.log(
-                        `[${now.getHours()}:${now.getMinutes()}:${now.getSeconds()}.${now.getMilliseconds()}]`,
-                        "parsed:",
-                        parsedData,
-                    );
-                }
-            } catch (e) {
-                messageHandler(new ParseErrorEvent(stringData));
+    serverInstance = Bun.serve({
+        port: parseInt(backbonePort),
+        fetch(req, server) {
+            // Upgrade HTTP request to WebSocket
+            if (server.upgrade(req)) {
+                return; // Return nothing if upgrade succeeds
             }
-
-            const messageTag = parsedData[0];
-            if (messageTag == "data") {
-                const command = parsedData[1];
+            return new Response("Upgrade failed", { status: 500 });
+        },
+        websocket: {
+            open(ws) {
+                // Connection opened
+            },
+            message(ws, data) {
+                // Decode data to string
+                const stringData = typeof data === "string" ? data : new TextDecoder().decode(data);
+                let parsedData;
                 try {
-                    if (command[0] == "shutdown") {
-                        shutdown(wss);
-                    } else if (
-                        command[0] === "package_installed" &&
-                        command.length > 1
-                    ) {
-                        // Update the package tracker before handling the message
-                        const packageName = command[1];
-                        let packageTracker = updatePackageTracker(packageName);
-                        if (DEBUG) {
-                            console.log(
-                                `Package installed: ${packageName}. ` +
-                                    `${packageTracker.installed.length}/${packageTracker.total} ` +
-                                    `(${packageTracker.pending.length} remaining)`,
-                            );
-                        }
-                        messageHandler(new CommandEvent(command));
-                    } else {
-                        messageHandler(new CommandEvent(command));
+                    parsedData = JSON.parse(stringData);
+                    if (DEBUG) {
+                        const now = new Date();
+                        console.log(
+                            `[${now.getHours()}:${now.getMinutes()}:${now.getSeconds()}.${now.getMilliseconds()}]`,
+                            "parsed:",
+                            parsedData,
+                        );
                     }
                 } catch (e) {
-                    messageHandler(new HandleErrorEvent(command, e));
+                    messageHandler(new ParseErrorEvent(stringData));
+                    return;
                 }
-            } else {
-                messageHandler(
-                    new HandleErrorEvent(
-                        "",
-                        `Unknown message tag: ${messageTag}`,
-                    ),
-                );
-            }
-        });
+
+                const messageTag = parsedData[0];
+                if (messageTag == "data") {
+                    const command = parsedData[1];
+                    try {
+                        if (command[0] == "shutdown") {
+                            shutdown();
+                        } else if (
+                            command[0] === "package_installed" &&
+                            command.length > 1
+                        ) {
+                            const packageName = command[1];
+                            let packageTracker = updatePackageTracker(packageName);
+                            if (DEBUG) {
+                                console.log(
+                                    `Package installed: ${packageName}. ` +
+                                        `${packageTracker.installed.length}/${packageTracker.total} ` +
+                                        `(${packageTracker.pending.length} remaining)`,
+                                );
+                            }
+                            messageHandler(new CommandEvent(command));
+                        } else {
+                            messageHandler(new CommandEvent(command));
+                        }
+                    } catch (e) {
+                        messageHandler(new HandleErrorEvent(command, e));
+                    }
+                } else {
+                    messageHandler(
+                        new HandleErrorEvent(
+                            "",
+                            `Unknown message tag: ${messageTag}`,
+                        ),
+                    );
+                }
+            },
+            error(ws, error) {
+                messageHandler(new HandleErrorEvent("", error.message));
+            },
+            close(ws, code, reason) {
+                // Connection closed
+            },
+        },
     });
 }
 
 export function setupClient(emacsPort) {
-    return new Promise((resolve) => {
+    return new Promise((resolve, reject) => {
         const ws = new WebSocket(`ws://127.0.0.1:${emacsPort}`);
 
-        ws.on("error", console.error);
+        ws.addEventListener("error", (event) => {
+            console.error("WebSocket error:", event);
+        });
 
-        ws.on("open", function open() {
+        ws.addEventListener("open", () => {
             console.log("Connected to Emacs server");
-            // Resolve the promise with the websocket when it's open
             resolve(ws);
         });
 
-        ws.on("message", function message(data) {
-            console.error("Emcas Server: %s", data);
+        ws.addEventListener("message", (event) => {
+            console.error("Emacs Server: %s", event.data);
         });
     });
 }
@@ -147,15 +155,16 @@ export function getEmacsVar(emacsPort, varName) {
         try {
             let ws = new WebSocket(`ws://127.0.0.1:${emacsPort}`);
             let timeout;
-            ws.on("error", (error) => {
+
+            ws.addEventListener("error", (event) => {
                 clearTimeout(timeout);
                 resolve({
                     ok: false,
-                    error: `WebSocket error: ${error.message}`,
+                    error: `WebSocket error: ${event.message || "Connection failed"}`,
                 });
             });
 
-            ws.on("open", function open() {
+            ws.addEventListener("open", () => {
                 if (DEBUG) console.debug("[getEmacsVar] fetch: %s", varName);
 
                 const payload = {
@@ -165,13 +174,13 @@ export function getEmacsVar(emacsPort, varName) {
                 ws.send(JSON.stringify(payload));
             });
 
-            ws.on("message", function message(data) {
-                if (DEBUG) console.debug("[getEmacsVar] value: |%s|", data);
+            ws.addEventListener("message", (event) => {
+                if (DEBUG) console.debug("[getEmacsVar] value: |%s|", event.data);
 
                 clearTimeout(timeout);
                 resolve({
                     ok: true,
-                    value: data.toString("utf-8"),
+                    value: event.data,
                 });
                 ws.close();
             });
@@ -197,15 +206,16 @@ export function evalInEmacsWithReturn(emacsPort, timeoutSeconds, code) {
         try {
             let ws = new WebSocket(`ws://127.0.0.1:${emacsPort}`);
             let timeout;
-            ws.on("error", (error) => {
+
+            ws.addEventListener("error", (event) => {
                 clearTimeout(timeout);
                 resolve({
                     ok: false,
-                    error: `WebSocket error: ${error.message}`,
+                    error: `WebSocket error: ${event.message || "Connection failed"}`,
                 });
             });
 
-            ws.on("open", function open() {
+            ws.addEventListener("open", () => {
                 if (DEBUG) console.debug("[callEmacsFunc] call: %s", code);
 
                 const payload = {
@@ -215,13 +225,13 @@ export function evalInEmacsWithReturn(emacsPort, timeoutSeconds, code) {
                 ws.send(JSON.stringify(payload));
             });
 
-            ws.on("message", function message(data) {
-                if (DEBUG) console.debug("[callEmacsFunc] value: |%s|", data);
+            ws.addEventListener("message", (event) => {
+                if (DEBUG) console.debug("[callEmacsFunc] value: |%s|", event.data);
 
                 clearTimeout(timeout);
                 resolve({
                     ok: true,
-                    value: data.toString("utf-8"),
+                    value: event.data,
                 });
                 ws.close();
             });
@@ -246,20 +256,12 @@ export function enableDebug(flag) {
     DEBUG = Boolean(flag);
 }
 
-function shutdown(wss) {
+function shutdown() {
     console.log("Shutting down Backbone server...");
-    // Close all active connections
-    wss.clients.forEach((client) => {
-        client.close();
-    });
-    // Close the WebSocket server itself
-    wss.close((err) => {
-        if (err) {
-            console.error("Error while shutting down:", err);
-        } else {
-            console.log("WebSocket server closed successfully");
-        }
-    });
+    if (serverInstance) {
+        serverInstance.stop();
+        console.log("WebSocket server closed successfully");
+    }
 }
 
 export function awaitForever(promise) {
