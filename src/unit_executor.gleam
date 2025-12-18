@@ -198,10 +198,7 @@ fn verify_runtime_deps_loop(
   case deps {
     [] -> {
       case ctx.enable_debug {
-        True ->
-          io.println(
-            "Unit " <> unit.name <> " dependency checks passed",
-          )
+        True -> io.println("Unit " <> unit.name <> " dependency checks passed")
         _ -> Nil
       }
       monadic.pure("")

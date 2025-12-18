@@ -131,7 +131,10 @@ fn compose_env_injection(ctx: EmacsContext) -> CommandResult(String) {
   "Starting environment injection" |> io.println
 
   let result =
-    ctx.call("backbone-load-envvars-file", StringParam(["~/.config/backbone/env"]))
+    ctx.call(
+      "backbone-load-envvars-file",
+      StringParam(["~/.config/backbone/env"]),
+    )
 
   "environment injection completed" |> io.println
   result
