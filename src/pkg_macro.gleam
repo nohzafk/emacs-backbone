@@ -1,4 +1,4 @@
-import emacs.{type EmacsContext, StringParam}
+import emacs.{type EmacsContext, StringParam, message}
 import gleam/dynamic/decode
 import gleam/io
 import gleam/json
@@ -96,6 +96,57 @@ pub fn pkg_decoder() -> decode.Decoder(Pkg) {
   |> decode.success
 }
 
+/// Validate that local package paths exist
+/// Returns a list of packages with invalid paths (name, path) pairs
+fn validate_local_packages(
+  packages: List(Pkg),
+  enable_debug: Bool,
+) -> List(#(String, String)) {
+  packages
+  |> list.filter_map(fn(pkg) {
+    case pkg.recipe {
+      Some(Local(local_recipe)) -> {
+        let path = local_recipe.path
+        case enable_debug {
+          True ->
+            io.println(
+              "[DEBUG] Validating local package '"
+              <> pkg.name
+              <> "' at: "
+              <> path,
+            )
+          False -> Nil
+        }
+        case simplifile.is_directory(path) {
+          Ok(True) -> {
+            case enable_debug {
+              True ->
+                io.println(
+                  "[DEBUG] Local package '"
+                  <> pkg.name
+                  <> "' path exists: "
+                  <> path,
+                )
+              False -> Nil
+            }
+            Error(Nil)
+          }
+          _ -> {
+            io.println_error(
+              "[ERROR] Local package '"
+              <> pkg.name
+              <> "' path does not exist: "
+              <> path,
+            )
+            Ok(#(pkg.name, path))
+          }
+        }
+      }
+      _ -> Error(Nil)
+    }
+  })
+}
+
 /// Fetch packages defined in Emacs using the package! macro
 pub fn fetch_packages(ctx: EmacsContext) -> CommandResult(List(Pkg)) {
   // Get the packages from Emacs
@@ -125,6 +176,40 @@ pub fn generate_macro_defined_packages(
 ) -> CommandResult(List(String)) {
   // Fetch packages defined via the package! macro
   use pkgs <- bind(fetch_packages(ctx))
+
+  // Validate local package paths before proceeding
+  let invalid_paths = validate_local_packages(pkgs, ctx.enable_debug)
+  case invalid_paths {
+    [] -> Nil
+    _ -> {
+      let error_details =
+        invalid_paths
+        |> list.map(fn(pair) {
+          let #(name, path) = pair
+          "  - " <> name <> ": " <> path
+        })
+        |> string.join("\n")
+      let error_msg = "Local package paths do not exist:\n" <> error_details
+      io.println_error("[ERROR] " <> error_msg)
+      // Also send to Emacs *Messages* buffer
+      message(error_msg, ctx.pws)
+    }
+  }
+  use _ <- bind(case invalid_paths {
+    [] -> pure(Nil)
+    _ -> {
+      let error_details =
+        invalid_paths
+        |> list.map(fn(pair) {
+          let #(name, path) = pair
+          name <> " (" <> path <> ")"
+        })
+        |> string.join(", ")
+      fail_with(
+        "Cannot proceed: local package paths do not exist: " <> error_details,
+      )
+    }
+  })
 
   // Generate packages.el from the fetched packages
   case pkg_utils.genearte_packages(pkgs, packages_el_path, ctx.enable_debug) {

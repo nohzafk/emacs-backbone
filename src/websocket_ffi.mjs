@@ -55,10 +55,14 @@ export function setupServer(backbonePort, messageHandler) {
                             const packageName = command[1];
                             let packageTracker = updatePackageTracker(packageName);
                             if (DEBUG) {
+                                const pendingList = packageTracker.pending.length > 0
+                                    ? packageTracker.pending.slice(0, 5).join(", ") +
+                                      (packageTracker.pending.length > 5 ? `, ... (+${packageTracker.pending.length - 5} more)` : "")
+                                    : "none";
                                 console.log(
                                     `Package installed: ${packageName}. ` +
                                         `${packageTracker.installed.length}/${packageTracker.total} ` +
-                                        `(${packageTracker.pending.length} remaining)`,
+                                        `(${packageTracker.pending.length} remaining: ${pendingList})`,
                                 );
                             }
                             messageHandler(new CommandEvent(command));
