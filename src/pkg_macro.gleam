@@ -7,15 +7,21 @@ import gleam/option.{None, Some}
 import gleam/string
 import monadic.{type CommandResult, bind, fail_with, pure}
 import pkg.{
-  type Pkg, type Recipe, Branch, Local, Pkg, Remote, RemoteRecipe, Tag, Version,
+  type Pkg, type Recipe, Branch, Local, LocalRecipe, Pkg, Remote, RemoteRecipe,
+  Tag, Version,
 }
 import pkg_utils
 import simplifile
 
-/// Create a decoder for local recipe (just a path string)
+/// Create a decoder for local recipe (path and optional files)
 fn local_recipe_decoder() -> decode.Decoder(Recipe) {
   use local_path <- decode.field("local", decode.string)
-  Local(local_path) |> decode.success
+  use files <- decode.optional_field(
+    "files",
+    None,
+    decode.optional(decode.list(decode.string)),
+  )
+  Local(LocalRecipe(path: local_path, files: files)) |> decode.success
 }
 
 /// Create a decoder for remote Recipe type

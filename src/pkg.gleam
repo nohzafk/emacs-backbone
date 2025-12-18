@@ -17,10 +17,15 @@ pub type RemoteRecipe {
   )
 }
 
+/// Recipe for local packages (from filesystem)
+pub type LocalRecipe {
+  LocalRecipe(path: String, files: Option(List(String)))
+}
+
 /// Recipe can be either remote (git) or local (filesystem path)
 pub type Recipe {
   Remote(RemoteRecipe)
-  Local(String)
+  Local(LocalRecipe)
 }
 
 pub type Pkg {
@@ -63,7 +68,7 @@ pub fn files(pkg: Pkg, files: List(String)) {
       |> option.map(fn(recipe) {
         case recipe {
           Remote(r) -> Remote(RemoteRecipe(..r, files: Some(files)))
-          Local(_) -> recipe  // Local packages don't support files filter
+          Local(l) -> Local(LocalRecipe(..l, files: Some(files)))
         }
       }),
   )

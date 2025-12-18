@@ -76,11 +76,19 @@ The `package!` macro declares packages with explicit dependencies, eliminating l
 (package! evil-collection
   :repo "emacs-evil/evil-collection"
   :deps (evil))
+
+;; Local package with subdirectories
+(package! lsp-bridge
+  :local "~/projects/lsp-bridge"
+  :files ("*.el" "*.py" "acm" "core" "langserver")
+  :no-compilation t
+  :deps (markdown-mode yasnippet))
 ```
 
 **Key features:**
 - **Dependency resolution**: Use `:deps` to declare package dependencies - the system guarantees they install first
 - **Repository flexibility**: Install from GitHub, GitLab, or any git host with `:repo` and `:host`
+- **Local packages**: Use `:local` for packages from local filesystem, with `:files` to include subdirectories
 - **Version pinning**: Use `:branch`, `:tag`, or `:ref` for reproducible builds
 - **No manual ordering needed**: Declare packages anywhere in your config - dependencies are resolved automatically
 

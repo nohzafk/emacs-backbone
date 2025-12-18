@@ -122,7 +122,8 @@ handles dependency resolution, verification and installation sequencing."
        ;; Add local recipe if local path is provided
        (when ,local
          (setq pkg (plist-put pkg :recipe
-                              (list :local (expand-file-name ,local)))))
+                              (list :local (expand-file-name ,local)
+                                    :files ,files))))
 
        ;; Add remote recipe if repo is provided (and not local)
        (when (and ,repo (not ,local))

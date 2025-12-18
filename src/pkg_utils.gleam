@@ -70,14 +70,25 @@ fn generate_packages_el_with_notifications(
 /// Convert a Recipe to its Elisp representation for Elpaca
 fn recipe_to_elisp(recipe: Recipe, pkg: Pkg) -> String {
   case recipe {
-    Local(path) -> {
+    Local(local_recipe) -> {
       // For local packages, use :repo with local path (no :host)
       // Per elpaca docs: ":repo is a local file path or remote URL when :host is not used"
+      let files_el = case local_recipe.files {
+        None -> ""
+        Some(files) ->
+          "\n  :files ("
+          <> {
+            files
+            |> list.map(fn(file) { "\"" <> file <> "\"" })
+            |> string.join(" ")
+          }
+          <> ")"
+      }
       let no_compilation_el = case pkg.no_compilation {
-        Some(True) -> " :build (:not elpaca--byte-compile)"
+        Some(True) -> "\n  :build (:not elpaca--byte-compile)"
         _ -> ""
       }
-      ":repo \"" <> path <> "\"" <> no_compilation_el
+      ":repo \"" <> local_recipe.path <> "\"" <> files_el <> no_compilation_el
     }
     Remote(r) -> {
       let host_el = ":host " <> r.host
