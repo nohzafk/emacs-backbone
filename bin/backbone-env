@@ -54,8 +54,10 @@ EOF
   # Write the Lisp list of env vars
   echo "(" >> "$output_file"
   for var in "${env_vars[@]}"; do
-    # Escape the value properly for Lisp
-    printf ' "%s"\n' "${var//\"/\\\"}" >> "$output_file"
+    # Escape the value properly for Lisp (backslashes first, then quotes)
+    escaped="${var//\\/\\\\}"
+    escaped="${escaped//\"/\\\"}"
+    printf ' "%s"\n' "$escaped" >> "$output_file"
   done
   echo ")" >> "$output_file"
 
