@@ -12,7 +12,7 @@ import unit.{type ConfigUnit, ConfigUnit, FeatureDep, UnitDep}
 pub fn unit_decoder() -> decode.Decoder(ConfigUnit) {
   use name <- decode.field("name", decode.string)
   use features <- decode.optional_field(
-    "features",
+    "requires",
     None,
     decode.optional(decode.list(decode.string)),
   )
