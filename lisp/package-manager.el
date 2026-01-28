@@ -43,3 +43,6 @@
 (elpaca elpaca-use-package
   ;; Enable use-package :ensure support for Elpaca.
   (elpaca-use-package-mode))
+
+;; Block until current queue processed - required before using use-package
+(elpaca-wait)
