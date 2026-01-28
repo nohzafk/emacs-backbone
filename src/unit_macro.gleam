@@ -56,7 +56,10 @@ pub fn fetch_units(ctx: EmacsContext) -> CommandResult(List(ConfigUnit)) {
       let error_msg =
         "Failed to decode list of packages: " <> string.inspect(errs)
       io.println_error("[ERROR] " <> error_msg)
-      io.println_error("[DEBUG] Raw data: " <> js_data)
+      case ctx.enable_debug {
+        True -> io.println_error("[DEBUG] Raw data: " <> js_data)
+        False -> Nil
+      }
       fail_with(error_msg)
     }
   }

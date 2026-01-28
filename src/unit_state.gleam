@@ -12,7 +12,6 @@ pub fn new() -> UnitState {
 }
 
 pub fn mark_failed(state: UnitState, unit_name: String) -> UnitState {
-  io.println("[DEBUG] Marking unit '" <> unit_name <> "' as failed")
   UnitState(..state, failed_units: set.insert(state.failed_units, unit_name))
 }
 
@@ -25,15 +24,7 @@ pub fn mark_successful(state: UnitState, unit_name: String) -> UnitState {
 
 pub fn has_failed_dependency(state: UnitState, deps: List(String)) -> Bool {
   deps
-  |> list.any(fn(dep) {
-    let has_failed = set.contains(state.failed_units, dep)
-    case has_failed {
-      True ->
-        io.println("[DEBUG] Dependency '" <> dep <> "' is in failed state")
-      False -> Nil
-    }
-    has_failed
-  })
+  |> list.any(fn(dep) { set.contains(state.failed_units, dep) })
 }
 
 pub fn is_failed(state: UnitState, unit_name: String) -> Bool {

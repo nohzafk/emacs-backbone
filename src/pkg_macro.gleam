@@ -1,9 +1,11 @@
 import emacs.{type EmacsContext, StringParam, message}
 import gleam/dynamic/decode
+import gleam/int
 import gleam/io
 import gleam/json
 import gleam/list
 import gleam/option.{None, Some}
+import gleam/result
 import gleam/string
 import monadic.{type CommandResult, bind, fail_with, pure}
 import pkg.{
@@ -222,6 +224,59 @@ fn validate_local_packages(
   }
 }
 
+/// Extract package name from decode error for better error messages
+fn get_decode_error_hint(js_data: String, errs: json.DecodeError) -> String {
+  case extract_package_name_from_error(js_data, errs) {
+    Ok(name) ->
+      "\n\n[ERROR] Package '" <> name <> "' has invalid recipe." <>
+      "\n        Remote packages (:repo) must specify :branch, :tag, or :ref"
+    Error(_) -> ""
+  }
+}
+
+/// Try to extract package name from error path
+fn extract_package_name_from_error(
+  js_data: String,
+  errs: json.DecodeError,
+) -> Result(String, Nil) {
+  use idx_str <- result.try(extract_index_from_error(errs))
+  use idx <- result.try(int.parse(idx_str) |> result.replace_error(Nil))
+  use pkgs <- result.try(
+    json.parse(js_data, decode.list(decode.dynamic))
+    |> result.replace_error(Nil),
+  )
+  use pkg <- result.try(list.drop(pkgs, idx) |> list.first)
+
+  // Decode the name field from the dynamic package
+  let name_decoder = {
+    use name <- decode.field("name", decode.string)
+    decode.success(name)
+  }
+  decode.run(pkg, name_decoder) |> result.replace_error(Nil)
+}
+
+/// Extract package index from error string
+fn extract_index_from_error(errs: json.DecodeError) -> Result(String, Nil) {
+  let err_str = string.inspect(errs)
+
+  // Extract index from path like: path: ["3", "local"]
+  case string.split(err_str, "path: [") {
+    [_, rest] if rest != "" -> {
+      case string.split(rest, "\"") {
+        [_, idx_str, ..] -> {
+          let trimmed = string.trim(idx_str)
+          case trimmed {
+            "" -> Error(Nil)
+            idx -> Ok(idx)
+          }
+        }
+        _ -> Error(Nil)
+      }
+    }
+    _ -> Error(Nil)
+  }
+}
+
 /// Fetch packages defined in Emacs using the package! macro
 pub fn fetch_packages(ctx: EmacsContext) -> CommandResult(List(Pkg)) {
   // Get the packages from Emacs
@@ -234,10 +289,14 @@ pub fn fetch_packages(ctx: EmacsContext) -> CommandResult(List(Pkg)) {
   case decode_result {
     Ok(package_list) -> pure(package_list)
     Error(errs) -> {
-      let error_msg =
-        "Failed to decode list of packages: " <> string.inspect(errs)
+      let hint = get_decode_error_hint(js_data, errs)
+      let error_msg = "Failed to decode list of packages: " <> string.inspect(errs) <> hint
+
       io.println_error("[ERROR] " <> error_msg)
-      io.println_error("[DEBUG] Raw data: " <> js_data)
+      case ctx.enable_debug {
+        True -> io.println_error("[DEBUG] Raw data: " <> js_data)
+        False -> Nil
+      }
       fail_with(error_msg)
     }
   }
