@@ -34,7 +34,7 @@ fn generate_packages_el_with_notifications(
 
     let straight_config = case recipe_str |> string.trim {
       "" -> "\n  :ensure t"
-      _ as parts -> "\n  :ensure (" <> parts <> ")"
+      parts -> "\n  :ensure (" <> parts <> ")"
     }
 
     // TODO: Add support for other Pkg fields like :disable, :pin, etc. later

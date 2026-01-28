@@ -32,7 +32,7 @@ pub fn unit_decoder() -> decode.Decoder(ConfigUnit) {
 
   let deps = case [feature_deps, unit_deps] |> list.flatten {
     [] -> None
-    _ as value -> Some(value)
+    value -> Some(value)
   }
 
   ConfigUnit(name: name, deps: deps, code: code) |> decode.success
