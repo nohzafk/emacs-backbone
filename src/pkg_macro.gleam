@@ -51,21 +51,49 @@ fn remote_recipe_decoder() -> decode.Decoder(Recipe) {
     decode.bool |> decode.map(Some),
   )
 
-  let ref = case branch, tag, version {
-    Some(v), _, _ -> Branch(v)
-    _, Some(v), _ -> Tag(v)
-    _, _, Some(v) -> Version(v)
-    _, _, _ -> Branch("main")
+  // Require explicit branch/tag/ref for remote repos - no default
+  case branch, tag, version {
+    Some(v), _, _ -> {
+      Remote(RemoteRecipe(
+        host: host,
+        repo: repo,
+        ref: Branch(v),
+        files: files,
+        wait: wait,
+      ))
+      |> decode.success
+    }
+    _, Some(v), _ -> {
+      Remote(RemoteRecipe(
+        host: host,
+        repo: repo,
+        ref: Tag(v),
+        files: files,
+        wait: wait,
+      ))
+      |> decode.success
+    }
+    _, _, Some(v) -> {
+      Remote(RemoteRecipe(
+        host: host,
+        repo: repo,
+        ref: Version(v),
+        files: files,
+        wait: wait,
+      ))
+      |> decode.success
+    }
+    _, _, _ -> {
+      // Fail explicitly when no branch/tag/ref is provided
+      decode.failure(Remote(RemoteRecipe(
+        host: host,
+        repo: repo,
+        ref: Branch(""),
+        files: files,
+        wait: wait,
+      )), "Remote recipe for repo '" <> repo <> "' must specify one of: :branch, :tag, or :ref")
+    }
   }
-
-  Remote(RemoteRecipe(
-    host: host,
-    repo: repo,
-    ref: ref,
-    files: files,
-    wait: wait,
-  ))
-  |> decode.success
 }
 
 /// Create a decoder for Recipe type (tries local first, then remote)
@@ -96,55 +124,102 @@ pub fn pkg_decoder() -> decode.Decoder(Pkg) {
   |> decode.success
 }
 
+/// Validate that remote packages have explicit branch/tag/ref
+/// Returns Result - Ok(Nil) if valid, Error with message if invalid
+fn validate_remote_packages(
+  packages: List(Pkg),
+  ctx: EmacsContext,
+) -> CommandResult(Nil) {
+  let invalid =
+    packages
+    |> list.filter_map(fn(pkg) {
+      case pkg.recipe {
+        Some(Remote(RemoteRecipe(repo: repo, ref: Branch(""), ..))) ->
+          Ok(#(pkg.name, repo))
+        _ -> Error(Nil)
+      }
+    })
+
+  case invalid {
+    [] -> pure(Nil)
+    errors -> {
+      let error_details =
+        errors
+        |> list.map(fn(pair) {
+          let #(name, repo) = pair
+          "  - " <> name <> " (repo: " <> repo <> ")"
+        })
+        |> string.join("\n")
+      let error_msg =
+        "Remote packages must specify :branch, :tag, or :ref:\n"
+        <> error_details
+
+      io.println_error("[ERROR] " <> error_msg)
+      message(error_msg, ctx.pws)
+
+      fail_with(
+        "Cannot proceed: remote packages missing branch/tag/ref: "
+        <> { errors |> list.map(fn(p) { p.0 }) |> string.join(", ") },
+      )
+    }
+  }
+}
+
 /// Validate that local package paths exist
-/// Returns a list of packages with invalid paths (name, path) pairs
+/// Returns Result - Ok(Nil) if valid, Error with message if invalid
 fn validate_local_packages(
   packages: List(Pkg),
-  enable_debug: Bool,
-) -> List(#(String, String)) {
-  packages
-  |> list.filter_map(fn(pkg) {
-    case pkg.recipe {
-      Some(Local(local_recipe)) -> {
-        let path = local_recipe.path
-        case enable_debug {
-          True ->
-            io.println(
-              "[DEBUG] Validating local package '"
-              <> pkg.name
-              <> "' at: "
-              <> path,
-            )
-          False -> Nil
-        }
-        case simplifile.is_directory(path) {
-          Ok(True) -> {
-            case enable_debug {
-              True ->
-                io.println(
-                  "[DEBUG] Local package '"
-                  <> pkg.name
-                  <> "' path exists: "
-                  <> path,
-                )
-              False -> Nil
+  ctx: EmacsContext,
+) -> CommandResult(Nil) {
+  let invalid =
+    packages
+    |> list.filter_map(fn(pkg) {
+      case pkg.recipe {
+        Some(Local(LocalRecipe(path: path, ..))) -> {
+          case ctx.enable_debug {
+            True -> io.println("[DEBUG] Validating local package '" <> pkg.name <> "' at: " <> path)
+            False -> Nil
+          }
+
+          case simplifile.is_directory(path) {
+            Ok(True) -> {
+              case ctx.enable_debug {
+                True -> io.println("[DEBUG] Local package '" <> pkg.name <> "' path exists: " <> path)
+                False -> Nil
+              }
+              Error(Nil)
             }
-            Error(Nil)
-          }
-          _ -> {
-            io.println_error(
-              "[ERROR] Local package '"
-              <> pkg.name
-              <> "' path does not exist: "
-              <> path,
-            )
-            Ok(#(pkg.name, path))
+            _ -> {
+              io.println_error("[ERROR] Local package '" <> pkg.name <> "' path does not exist: " <> path)
+              Ok(#(pkg.name, path))
+            }
           }
         }
+        _ -> Error(Nil)
       }
-      _ -> Error(Nil)
+    })
+
+  case invalid {
+    [] -> pure(Nil)
+    errors -> {
+      let error_details =
+        errors
+        |> list.map(fn(pair) {
+          let #(name, path) = pair
+          "  - " <> name <> ": " <> path
+        })
+        |> string.join("\n")
+      let error_msg = "Local package paths do not exist:\n" <> error_details
+
+      io.println_error("[ERROR] " <> error_msg)
+      message(error_msg, ctx.pws)
+
+      fail_with(
+        "Cannot proceed: local package paths do not exist: "
+        <> { errors |> list.map(fn(p) { p.0 }) |> string.join(", ") },
+      )
     }
-  })
+  }
 }
 
 /// Fetch packages defined in Emacs using the package! macro
@@ -177,39 +252,11 @@ pub fn generate_macro_defined_packages(
   // Fetch packages defined via the package! macro
   use pkgs <- bind(fetch_packages(ctx))
 
-  // Validate local package paths before proceeding
-  let invalid_paths = validate_local_packages(pkgs, ctx.enable_debug)
-  case invalid_paths {
-    [] -> Nil
-    _ -> {
-      let error_details =
-        invalid_paths
-        |> list.map(fn(pair) {
-          let #(name, path) = pair
-          "  - " <> name <> ": " <> path
-        })
-        |> string.join("\n")
-      let error_msg = "Local package paths do not exist:\n" <> error_details
-      io.println_error("[ERROR] " <> error_msg)
-      // Also send to Emacs *Messages* buffer
-      message(error_msg, ctx.pws)
-    }
-  }
-  use _ <- bind(case invalid_paths {
-    [] -> pure(Nil)
-    _ -> {
-      let error_details =
-        invalid_paths
-        |> list.map(fn(pair) {
-          let #(name, path) = pair
-          name <> " (" <> path <> ")"
-        })
-        |> string.join(", ")
-      fail_with(
-        "Cannot proceed: local package paths do not exist: " <> error_details,
-      )
-    }
-  })
+  // Validate local package paths
+  use _ <- bind(validate_local_packages(pkgs, ctx))
+
+  // Validate remote packages have explicit branch/tag/ref
+  use _ <- bind(validate_remote_packages(pkgs, ctx))
 
   // Generate packages.el from the fetched packages
   case pkg_utils.genearte_packages(pkgs, packages_el_path, ctx.enable_debug) {
