@@ -5,10 +5,10 @@ import gleam/list
 import gleam/option.{None, Some}
 import gleam/set
 import gleam/string
+import jsonrpc
 import monadic.{type CommandResult}
 import unit.{type ConfigUnit, type Dependency, EnvDep, FeatureDep, UnitDep}
 import unit_state.{type UnitState}
-import websocket
 
 pub fn execute_units(
   resolved_units: List(List(ConfigUnit)),
@@ -27,7 +27,7 @@ pub fn execute_units(
   let failed_units = set.to_list(final_state.failed_units)
   case failed_units {
     [] -> {
-      io.println("All units loaded successfully")
+      io.println_error("All units loaded successfully")
       monadic.pure("")
     }
     units -> {
@@ -81,7 +81,7 @@ fn process_group(
             Ok(msg) -> {
               case ctx.enable_debug {
                 True ->
-                  io.println(
+                  io.println_error(
                     "[SUCCESS] Unit " <> unit.name <> " executed. " <> msg,
                   )
                 _ -> Nil
@@ -90,7 +90,7 @@ fn process_group(
               unit_state.mark_successful(state, unit.name)
             }
             Error(error) -> {
-              io.println("[ERROR] Unit " <> unit.name <> " failed: " <> error)
+              io.println_error("[ERROR] Unit " <> unit.name <> " failed: " <> error)
               unit_state.mark_failed(state, unit.name)
             }
           }
@@ -104,7 +104,7 @@ fn process_group(
             list.map(deps, fn(dep) { "'" <> dep <> "'" })
             |> string.join(", ")
 
-          io.println(
+          io.println_error(
             "[ERROR] Skipping unit '"
             <> unit.name
             <> "' due to failed dependencies: "
@@ -145,8 +145,7 @@ fn execute_unit_with_fallback(
       case unit.code {
         None -> Ok("Empty body") |> Ok |> monadic.lift
         Some(body) -> {
-          let result =
-            websocket.eval_in_emacs_with_return(ctx.emacs_port, 5, body)
+          let result = jsonrpc.fetch_var(body, 5)
 
           promise.map(result, fn(res) {
             case res {
@@ -198,7 +197,7 @@ fn verify_runtime_deps_loop(
   case deps {
     [] -> {
       case ctx.enable_debug {
-        True -> io.println("Unit " <> unit.name <> " dependency checks passed")
+        True -> io.println_error("Unit " <> unit.name <> " dependency checks passed")
         _ -> Nil
       }
       monadic.pure("")
@@ -228,7 +227,7 @@ fn verify_unit_env_dep(
     "" | "null" -> monadic.fail_with("EnvDep failure: " <> env_var)
     _ -> {
       case ctx.enable_debug {
-        True -> io.println("EnvDep pass: " <> env_var)
+        True -> io.println_error("EnvDep pass: " <> env_var)
         _ -> Nil
       }
       monadic.pure("")
@@ -248,7 +247,7 @@ fn verify_unit_feature_dep(
   case value {
     "true" -> {
       case ctx.enable_debug {
-        True -> io.println("FeatureDep pass: " <> feature)
+        True -> io.println_error("FeatureDep pass: " <> feature)
         _ -> Nil
       }
       monadic.pure("")

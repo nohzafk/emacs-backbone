@@ -36,11 +36,11 @@ pub fn is_successful(state: UnitState, unit_name: String) -> Bool {
 }
 
 pub fn debug_state(state: UnitState) {
-  io.println(
+  io.println_error(
     "[DEBUG] Failed units: "
     <> string.join(set.to_list(state.failed_units), ", "),
   )
-  io.println(
+  io.println_error(
     "[DEBUG] Successful units: "
     <> string.join(set.to_list(state.successful_units), ", "),
   )

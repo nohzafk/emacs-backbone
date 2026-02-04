@@ -2,9 +2,6 @@
 
 (load-file (expand-file-name "./lisp/package-manager.el" user-emacs-directory))
 
-;; install websocket
-(use-package websocket :ensure (:wait t) :demand t)
-
 (load-file (expand-file-name "./lisp/helper.el" user-emacs-directory))
 (load-file (expand-file-name "./lisp/macro-package.el" user-emacs-directory))
 (load-file (expand-file-name "./lisp/macro-config-unit.el" user-emacs-directory))
@@ -20,7 +17,10 @@
   (emacs-backbone-reset-units)
 
   (load-file (expand-file-name "config.el" emacs-backbone-user-directory))
-  (emacs-backbone--call "init" emacs-backbone-buffer-name))
+  (when emacs-backbone--process
+    (jsonrpc-async-request emacs-backbone--process "init" nil
+      :success-fn (lambda (_) (message "[Backbone] Reloaded"))
+      :error-fn (lambda (err) (message "[Backbone] Reload failed: %s" err)))))
 
 (defvar-keymap emacs-backbone-prefix-map
   :doc "Backbone Utilities"

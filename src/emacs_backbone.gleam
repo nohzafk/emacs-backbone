@@ -1,20 +1,24 @@
-import argv
 import emacs.{type EmacsContext, EmacsContext, RawParam, StringParam}
+import gleam/dynamic.{type Dynamic}
+import gleam/dynamic/decode
 import gleam/float
 import gleam/int
 import gleam/io
-import gleam/javascript/array
 import gleam/json
 import gleam/string
 import gleam/time/duration
 import gleam/time/timestamp
+import jsonrpc.{
+  type Event, HandleErrorEvent, NotificationEvent, ParseErrorEvent,
+  RequestEvent,
+}
+import gleam/javascript/promise
 import monadic.{type CommandResult, bind, run_sequence}
 import package_tracker
 import pkg_macro
 import unit_executor
 import unit_macro
 import unit_utils
-import websocket.{type Event, CommandEvent, HandleErrorEvent, ParseErrorEvent}
 
 // Define a package tracker type
 pub type PackageTracker {
@@ -22,84 +26,107 @@ pub type PackageTracker {
 }
 
 pub fn main() {
-  let assert [backbone_port, emacs_port] = argv.load().arguments
-
-  let pws = websocket.setup_client(emacs_port)
-
   let context =
     EmacsContext(
       enable_debug: False,
       installed_packages_count: 0,
-      emacs_port: emacs_port,
-      pws: pws,
-      get: websocket.get_emacs_var(emacs_port, _),
-      call: emacs.call_no_return(pws),
-      eval: emacs.eval_with_return(port: emacs_port, timeout_seconds: 5),
+      get: emacs.get(),
+      call: emacs.call_no_return(),
+      eval: emacs.eval_with_return(timeout_seconds: 5),
     )
 
-  websocket.setup_server(backbone_port, handler(context))
-  io.println("Server listening on port " <> backbone_port)
+  jsonrpc.setup_stdio_server(handler(context))
+  io.println_error("Backbone stdio server started")
 }
 
 fn handler(context: EmacsContext) {
   fn(event: Event) -> Nil {
     case event {
-      CommandEvent(command) -> {
-        let assert [func, ..args] = command |> array.to_list
-
-        handle_command_event(context, func, args)
+      RequestEvent(id, method, params) -> {
+        handle_request(context, id, method, params)
         Nil
       }
-      ParseErrorEvent(data) -> io.println_error("Failed to parse data:" <> data)
-      HandleErrorEvent(command, error) ->
-        {
-          "Failed to handle command ["
-          <> command |> array.to_list |> string.join(" ")
-          <> "], error: "
-          <> error
-        }
-        |> io.println_error
+      NotificationEvent(method, params) -> {
+        handle_notification(context, method, params)
+        Nil
+      }
+      ParseErrorEvent(data) ->
+        io.println_error("Failed to parse data: " <> data)
+      HandleErrorEvent(method, error) ->
+        io.println_error(
+          "Failed to handle " <> method <> ", error: " <> error,
+        )
     }
   }
 }
 
-fn handle_command_event(
+fn handle_request(
   context: EmacsContext,
-  func: String,
-  args: List(String),
+  id: Int,
+  method: String,
+  _params: Dynamic,
 ) -> Nil {
-  case func {
+  case method {
     "init" -> {
-      websocket.update_init_start_time(timestamp.system_time())
-      init(context)
+      jsonrpc.update_init_start_time(timestamp.system_time())
+      init(context, id)
       Nil
     }
-    "package_installed" -> {
-      let assert [package_name, ..] = args
-
-      let status = package_tracker.update(package_name)
-      case status.all_installed {
-        True -> {
-          io.println("All packages installed, continuing with configuration")
-          after_package_installation_handler(
-            EmacsContext(..context, installed_packages_count: status.total),
-          )
-        }
-        False -> Nil
-      }
+    _ -> {
+      unhandle(context, method)
+      jsonrpc.send_error_response(id, -32601, "Unknown method: " <> method)
     }
-    _ -> unhandle(context, func)
   }
 }
 
-fn unhandle(ctx: EmacsContext, func) {
-  { "[Backbone] unsupported message: " <> func } |> emacs.message(ctx.pws)
+fn handle_notification(
+  context: EmacsContext,
+  method: String,
+  params: Dynamic,
+) -> Nil {
+  case method {
+    "package_installed" -> {
+      let name_decoder = {
+        use name <- decode.field("name", decode.string)
+        decode.success(name)
+      }
+      case decode.run(params, name_decoder) {
+        Ok(package_name) -> {
+          let status = package_tracker.update(package_name)
+          case status.all_installed {
+            True -> {
+              io.println_error(
+                "All packages installed, continuing with configuration",
+              )
+              after_package_installation_handler(
+                EmacsContext(
+                  ..context,
+                  installed_packages_count: status.total,
+                ),
+              )
+            }
+            False -> Nil
+          }
+        }
+        Error(_) ->
+          io.println_error(
+            "Failed to decode package_installed params: "
+            <> string.inspect(params),
+          )
+      }
+    }
+    _ -> unhandle(context, method)
+  }
 }
 
-fn init(ctx: EmacsContext) -> CommandResult(String) {
+fn unhandle(_ctx: EmacsContext, func) {
+  { "[Backbone] unsupported message: " <> func } |> emacs.message
+}
+
+fn init(ctx: EmacsContext, request_id: Int) -> CommandResult(String) {
   use enable_debug <- bind(ctx.get("emacs-backbone-enable-debug"))
   let enable_debug_flag = enable_debug == "true"
-  websocket.enable_debug(enable_debug_flag)
+  jsonrpc.enable_debug(enable_debug_flag)
   let ctx = EmacsContext(..ctx, enable_debug: enable_debug_flag)
 
   use _ <- bind(
@@ -115,6 +142,9 @@ fn init(ctx: EmacsContext) -> CommandResult(String) {
       compose_packages_installation(ctx),
     ]),
   )
+
+  // Respond to the init request
+  jsonrpc.send_response(request_id, "ok")
   monadic.pure("")
 }
 
@@ -128,7 +158,7 @@ fn compose_setup(ctx: EmacsContext) -> List(CommandResult(String)) {
 }
 
 fn compose_env_injection(ctx: EmacsContext) -> CommandResult(String) {
-  "Starting environment injection" |> io.println
+  "Starting environment injection" |> io.println_error
 
   let result =
     ctx.call(
@@ -136,13 +166,13 @@ fn compose_env_injection(ctx: EmacsContext) -> CommandResult(String) {
       StringParam(["~/.config/backbone/env"]),
     )
 
-  "environment injection completed" |> io.println
+  "environment injection completed" |> io.println_error
   result
 }
 
-/// pacakges.el use elpaca to install packages oasynchronously
+/// pacakges.el use elpaca to install packages asynchronously
 fn compose_packages_installation(ctx: EmacsContext) -> CommandResult(String) {
-  "Starting package installation" |> io.println
+  "Starting package installation" |> io.println_error
 
   use packages_el_path <- bind(ctx.eval(
     "make-temp-file",
@@ -161,14 +191,14 @@ fn compose_packages_installation(ctx: EmacsContext) -> CommandResult(String) {
   package_tracker.initialize(package_list)
 
   // Load the packages.el file
-  emacs.eval_with_return(port: ctx.emacs_port, timeout_seconds: 10 * 60)(
+  emacs.eval_with_return(timeout_seconds: 10 * 60)(
     "load-file",
     StringParam([packages_el_path]),
   )
 }
 
 fn after_package_installation_handler(ctx: EmacsContext) -> Nil {
-  {
+  let result = {
     use enable_debug <- bind(ctx.get("emacs-backbone-enable-debug"))
     use _ <- bind({
       EmacsContext(..ctx, enable_debug: enable_debug == "true")
@@ -176,32 +206,37 @@ fn after_package_installation_handler(ctx: EmacsContext) -> Nil {
     })
     compose_finish(ctx)
   }
+  // Log errors from the async chain instead of silently swallowing them
+  promise.map(result, fn(res) {
+    case res {
+      Error(err) ->
+        io.println_error("[ERROR] Configuration phase failed: " <> err)
+      _ -> Nil
+    }
+  })
   Nil
 }
 
 fn compose_packages_configuration(ctx: EmacsContext) -> CommandResult(String) {
-  "Starting package configuration" |> io.println
-
   use config_units <- bind(unit_macro.fetch_units(ctx))
 
-  config_units
-  |> unit_utils.resolve_units(ctx.enable_debug)
-  |> unit_executor.execute_units(ctx)
+  let resolved = unit_utils.resolve_units(config_units, ctx.enable_debug)
 
-  io.println("Package configuration fishied")
+  use _ <- bind(unit_executor.execute_units(resolved, ctx))
+
   monadic.pure("")
 }
 
 fn compose_finish(ctx: EmacsContext) -> CommandResult(String) {
   let time_elapsed =
     timestamp.difference(
-      websocket.get_init_start_time(),
+      jsonrpc.get_init_start_time(),
       timestamp.system_time(),
     )
     |> duration.to_seconds
     |> float.to_string
 
-  io.println("Finished in " <> time_elapsed <> "s")
+  io.println_error("Finished in " <> time_elapsed <> "s")
 
   let message =
     "Backbone loaded "
