@@ -98,58 +98,17 @@ function handleIncomingMessage(msg) {
 
     if (!messageHandler) return;
 
+    // Track package installation progress (works for both requests and notifications)
+    trackPackageInstallation(msg);
+
     // Request from Emacs (has id + method)
     if (msg.id !== undefined && msg.id !== null && msg.method) {
-        // Handle package_installed notifications-as-requests specially for tracking
-        if (msg.method === "package_installed" && msg.params) {
-            const packageName = msg.params.name;
-            if (packageName) {
-                const packageTracker = updatePackageTracker(packageName);
-                console.error(
-                    `[${packageTracker.installed.length}/${packageTracker.total}] ${packageName}`,
-                );
-                if (DEBUG) {
-                    const pendingList =
-                        packageTracker.pending.length > 0
-                            ? packageTracker.pending.slice(0, 5).join(", ") +
-                              (packageTracker.pending.length > 5
-                                  ? `, ... (+${packageTracker.pending.length - 5} more)`
-                                  : "")
-                            : "none";
-                    console.error(
-                        `  ${packageTracker.pending.length} remaining: ${pendingList}`,
-                    );
-                }
-            }
-        }
         messageHandler(new RequestEvent(msg.id, msg.method, msg.params || {}));
         return;
     }
 
     // Notification from Emacs (no id, has method)
     if (msg.method) {
-        // Handle package_installed notifications specially for tracking
-        if (msg.method === "package_installed" && msg.params) {
-            const packageName = msg.params.name;
-            if (packageName) {
-                const packageTracker = updatePackageTracker(packageName);
-                console.error(
-                    `[${packageTracker.installed.length}/${packageTracker.total}] ${packageName}`,
-                );
-                if (DEBUG) {
-                    const pendingList =
-                        packageTracker.pending.length > 0
-                            ? packageTracker.pending.slice(0, 5).join(", ") +
-                              (packageTracker.pending.length > 5
-                                  ? `, ... (+${packageTracker.pending.length - 5} more)`
-                                  : "")
-                            : "none";
-                    console.error(
-                        `  ${packageTracker.pending.length} remaining: ${pendingList}`,
-                    );
-                }
-            }
-        }
         messageHandler(
             new NotificationEvent(msg.method, msg.params || {}),
         );
@@ -159,6 +118,35 @@ function handleIncomingMessage(msg) {
     messageHandler(
         new HandleErrorEvent("unknown", "Unrecognized message format"),
     );
+}
+
+/**
+ * Track package installation progress for package_installed messages.
+ * Called for both requests and notifications to log installation progress.
+ */
+function trackPackageInstallation(msg) {
+    if (msg.method !== "package_installed" || !msg.params) return;
+
+    const packageName = msg.params.name;
+    if (!packageName) return;
+
+    const packageTracker = updatePackageTracker(packageName);
+    console.error(
+        `[${packageTracker.installed.length}/${packageTracker.total}] ${packageName}`,
+    );
+
+    if (DEBUG) {
+        const pendingList =
+            packageTracker.pending.length > 0
+                ? packageTracker.pending.slice(0, 5).join(", ") +
+                  (packageTracker.pending.length > 5
+                      ? `, ... (+${packageTracker.pending.length - 5} more)`
+                      : "")
+                : "none";
+        console.error(
+            `  ${packageTracker.pending.length} remaining: ${pendingList}`,
+        );
+    }
 }
 
 // --- Exported functions ---
@@ -276,4 +264,15 @@ export function updateInitStartTime(startTime) {
 
 export function getInitStartTime() {
     return INIT_START_TIME;
+}
+
+/**
+ * Gracefully shut down the stdio server.
+ * Allows pending operations to complete before exiting.
+ */
+export function shutdown() {
+    // Use setImmediate to allow any pending I/O to flush
+    setImmediate(() => {
+        process.exit(0);
+    });
 }

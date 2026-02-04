@@ -30,6 +30,10 @@ pub fn update_init_start_time(start_time: Timestamp) -> Nil
 @external(javascript, "./jsonrpc_ffi.mjs", "getInitStartTime")
 pub fn get_init_start_time() -> Timestamp
 
+/// Gracefully shut down the stdio server and exit the process
+@external(javascript, "./jsonrpc_ffi.mjs", "shutdown")
+pub fn shutdown() -> Nil
+
 // FFI bindings to Gleam-friendly wrappers that accept primitive args
 @external(javascript, "./jsonrpc_ffi.mjs", "showMessage")
 fn show_message_js(message: String) -> Promise(Dynamic)
@@ -74,18 +78,27 @@ fn convert_js_result(result: Dynamic) -> Result(String, String) {
 }
 
 // --- Typed wrappers ---
+//
+// Note on Promise semantics: Notifications (show_message, eval_code) return
+// Promises that resolve immediately/synchronously in the FFI layer. The Promise
+// indicates successful *sending* of the notification, not that Emacs has
+// processed it. These are fire-and-forget operations - Emacs does not send
+// a response. Only requests (fetch_var) actually await a response from Emacs.
 
-/// Send a show-message notification to Emacs (fire-and-forget)
+/// Send a show-message notification to Emacs.
+/// The Promise resolves immediately after sending (fire-and-forget).
 pub fn show_message(message: String) -> Promise(Result(String, String)) {
   show_message_js(message) |> promise.map(convert_js_result)
 }
 
-/// Send eval-code notification to Emacs (fire-and-forget)
+/// Send eval-code notification to Emacs.
+/// The Promise resolves immediately after sending (fire-and-forget).
 pub fn eval_code(code: String) -> Promise(Result(String, String)) {
   eval_code_js(code) |> promise.map(convert_js_result)
 }
 
-/// Send a fetch-var request to Emacs and await the response
+/// Send a fetch-var request to Emacs and await the response.
+/// Unlike notifications, this actually waits for Emacs to respond.
 pub fn fetch_var(
   expr: String,
   timeout_seconds: Int,

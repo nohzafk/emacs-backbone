@@ -79,11 +79,16 @@ Return value is sent back as the JSON-RPC response."
                     (message "[Backbone] Init failed: %s" err))))))
 
 (defun emacs-backbone-exit ()
-  "Shut down the Backbone process."
+  "Shut down the Backbone process gracefully."
   (interactive)
   (when emacs-backbone--process
     (condition-case nil
-        (jsonrpc-shutdown emacs-backbone--process)
+        (progn
+          ;; Send shutdown notification for graceful cleanup
+          (jsonrpc-notify emacs-backbone--process "shutdown" nil)
+          ;; Give the process a moment to handle the shutdown
+          (sit-for 0.1)
+          (jsonrpc-shutdown emacs-backbone--process))
       (error nil))
     (setq emacs-backbone--process nil
           emacs-backbone--initialized nil)

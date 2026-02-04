@@ -85,6 +85,11 @@ fn handle_notification(
   params: Dynamic,
 ) -> Nil {
   case method {
+    "shutdown" -> {
+      io.println_error("Received shutdown notification, exiting gracefully")
+      // Exit cleanly - Gleam/JS doesn't have a direct exit, but we can use the FFI
+      jsonrpc.shutdown()
+    }
     "package_installed" -> {
       let name_decoder = {
         use name <- decode.field("name", decode.string)
