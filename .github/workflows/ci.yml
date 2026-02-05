@@ -69,6 +69,8 @@ jobs:
         run: gleam build
 
       - name: Run JSON-RPC E2E test
+        env:
+          BACKBONE_DEBUG: "true"
         run: |
           emacs --batch \
             --eval "(setq user-emacs-directory \"$PWD/\")" \

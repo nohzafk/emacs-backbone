@@ -7,7 +7,7 @@ import {
 
 import { updatePackageTracker } from "./package_tracker_ffi.mjs";
 
-let DEBUG = false;
+let DEBUG = process.env.BACKBONE_DEBUG === "true";
 let requestId = 0;
 const pendingRequests = new Map();
 let messageHandler = null;
@@ -38,7 +38,11 @@ function parseMessages(data) {
         const header = inputBuffer.slice(0, headerEnd).toString("utf-8");
         const match = header.match(/Content-Length:\s*(\d+)/i);
         if (!match) {
-            // Malformed header, skip to after \r\n\r\n
+            // Malformed header - log and skip to after \r\n\r\n
+            const skipped = inputBuffer.slice(0, headerEnd + 4).toString("utf-8");
+            if (DEBUG) {
+                console.error("[jsonrpc] Skipping malformed header:", JSON.stringify(skipped));
+            }
             inputBuffer = inputBuffer.slice(headerEnd + 4);
             continue;
         }
@@ -58,6 +62,7 @@ function parseMessages(data) {
             const msg = JSON.parse(body);
             handleIncomingMessage(msg);
         } catch (e) {
+            console.error("[jsonrpc] JSON parse error:", e.message, "body:", body.slice(0, 100));
             if (messageHandler) {
                 messageHandler(new ParseErrorEvent(body));
             }
@@ -66,6 +71,7 @@ function parseMessages(data) {
 }
 
 function handleIncomingMessage(msg) {
+    // Log all messages in debug mode
     if (DEBUG) {
         const now = new Date();
         console.error(
@@ -73,6 +79,12 @@ function handleIncomingMessage(msg) {
             "recv:",
             JSON.stringify(msg),
         );
+    }
+
+    // Ignore empty or null messages
+    if (!msg || typeof msg !== "object") {
+        console.error("[jsonrpc] Ignoring non-object message:", typeof msg, msg);
+        return;
     }
 
     // Response to our outgoing request
@@ -115,6 +127,15 @@ function handleIncomingMessage(msg) {
         return;
     }
 
+    // If message has jsonrpc field but nothing else useful, it might be a protocol negotiation
+    // Just ignore these rather than erroring
+    if (msg.jsonrpc && Object.keys(msg).length <= 2) {
+        console.error("[jsonrpc] Ignoring minimal jsonrpc message:", JSON.stringify(msg));
+        return;
+    }
+
+    // Log unrecognized messages for debugging
+    console.error("[jsonrpc] Unrecognized message format:", JSON.stringify(msg));
     messageHandler(
         new HandleErrorEvent("unknown", "Unrecognized message format"),
     );
