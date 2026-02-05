@@ -51,7 +51,7 @@ fn debug_nodes_with_deps(nodes: List(Node(a))) -> Nil {
   nodes_with_deps
   |> list.each(fn(node) {
     let deps = option.unwrap(node.deps, [])
-    io.println("  " <> node.name <> " depends on: " <> string.join(deps, ", "))
+    io.println_error("  " <> node.name <> " depends on: " <> string.join(deps, ", "))
   })
 }
 
@@ -60,7 +60,7 @@ fn build_graph(
   nodes: List(Node(a)),
   enable_debug: Bool,
 ) -> Result(#(DependencyGraph, NodeMap(a)), ResolveError) {
-  io.println("Building dependency graph...")
+  io.println_error("Building dependency graph...")
 
   let node_map = get_node_map(nodes)
 
@@ -71,12 +71,12 @@ fn build_graph(
       {
         "Node map contains " <> string.inspect(dict.size(node_map)) <> " nodes:"
       }
-      |> io.println
+      |> io.println_error
 
       dict.keys(node_map)
-      |> list.each(fn(node_name) { io.println("  " <> node_name) })
+      |> list.each(fn(node_name) { io.println_error("  " <> node_name) })
 
-      io.println("Nodes with dependencies:")
+      io.println_error("Nodes with dependencies:")
       debug_nodes_with_deps(nodes)
     }
   }
@@ -313,8 +313,10 @@ fn topological_sort(
 fn debug_sorted_nodes(sorted_nodes: List(List(Node(a)))) -> Nil {
   sorted_nodes
   |> list.index_map(fn(nodes, idx) {
-    io.print("  " <> string.inspect(idx) <> ": ")
-    nodes |> list.map(fn(node) { node.name }) |> string.join(" ") |> io.println
+    io.println_error(
+      "  " <> string.inspect(idx) <> ": "
+      <> { nodes |> list.map(fn(node) { node.name }) |> string.join(" ") },
+    )
   })
   Nil
 }
@@ -341,15 +343,15 @@ pub fn resolve_dependencies(
     })
 
   // Summary of results
-  io.println("Dependency resolution complete")
+  io.println_error("Dependency resolution complete")
   case enable_debug {
     False -> Nil
     True -> {
-      io.println(
+      io.println_error(
         "  Total nodes: "
         <> string.inspect(sorted_levels |> list.flatten |> list.length),
       )
-      io.println(
+      io.println_error(
         "  Number of dependency levels: "
         <> string.inspect(sorted_nodes |> list.length),
       )

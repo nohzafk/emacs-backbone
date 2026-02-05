@@ -130,7 +130,6 @@ pub fn pkg_decoder() -> decode.Decoder(Pkg) {
 /// Returns Result - Ok(Nil) if valid, Error with message if invalid
 fn validate_remote_packages(
   packages: List(Pkg),
-  ctx: EmacsContext,
 ) -> CommandResult(Nil) {
   let invalid =
     packages
@@ -157,7 +156,7 @@ fn validate_remote_packages(
         <> error_details
 
       io.println_error("[ERROR] " <> error_msg)
-      message(error_msg, ctx.pws)
+      message(error_msg)
 
       fail_with(
         "Cannot proceed: remote packages missing branch/tag/ref: "
@@ -179,14 +178,14 @@ fn validate_local_packages(
       case pkg.recipe {
         Some(Local(LocalRecipe(path: path, ..))) -> {
           case ctx.enable_debug {
-            True -> io.println("[DEBUG] Validating local package '" <> pkg.name <> "' at: " <> path)
+            True -> io.println_error("[DEBUG] Validating local package '" <> pkg.name <> "' at: " <> path)
             False -> Nil
           }
 
           case simplifile.is_directory(path) {
             Ok(True) -> {
               case ctx.enable_debug {
-                True -> io.println("[DEBUG] Local package '" <> pkg.name <> "' path exists: " <> path)
+                True -> io.println_error("[DEBUG] Local package '" <> pkg.name <> "' path exists: " <> path)
                 False -> Nil
               }
               Error(Nil)
@@ -214,7 +213,7 @@ fn validate_local_packages(
       let error_msg = "Local package paths do not exist:\n" <> error_details
 
       io.println_error("[ERROR] " <> error_msg)
-      message(error_msg, ctx.pws)
+      message(error_msg)
 
       fail_with(
         "Cannot proceed: local package paths do not exist: "
@@ -315,7 +314,7 @@ pub fn generate_macro_defined_packages(
   use _ <- bind(validate_local_packages(pkgs, ctx))
 
   // Validate remote packages have explicit branch/tag/ref
-  use _ <- bind(validate_remote_packages(pkgs, ctx))
+  use _ <- bind(validate_remote_packages(pkgs))
 
   // Generate packages.el from the fetched packages
   case pkg_utils.genearte_packages(pkgs, packages_el_path, ctx.enable_debug) {

@@ -41,6 +41,7 @@ fn generate_packages_el_with_notifications(
 
     "(use-package " <> pkg.name <> straight_config <> "
   :config
+  (emacs-backbone--reset-package-timeout)
   ;; Send notification when package is installed
   (emacs-backbone--call \"package_installed\" \"" <> pkg.name <> "\")" <> ")"
   }
@@ -48,22 +49,15 @@ fn generate_packages_el_with_notifications(
   let packages_definition =
     packages
     |> list.map(fn(pkgs) {
-      pkgs |> list.map(pkg_to_elisp) |> string.join("\n\n")
+      let body = pkgs |> list.map(pkg_to_elisp) |> string.join("\n\n")
+      "(elpaca-queue\n" <> body <> "\n)"
     })
-    |> string.join(
-      "
+    |> string.join("\n\n")
 
-(elpaca-process-queues)
-;; ========
-
-",
-    )
-
-  { packages_definition <> "
-
-(elpaca-process-queues)
-
-" }
+  { "(emacs-backbone--begin-package-installation)\n\n"
+    <> packages_definition
+    <> "\n\n(elpaca-process-queues)\n"
+  }
   |> simplifile.write(to: path)
 }
 

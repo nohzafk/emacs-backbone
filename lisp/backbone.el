@@ -1,12 +1,20 @@
-;; Add the directory containing websocket.el to load-path
+;;; backbone.el --- JSON-RPC connection to Backbone Gleam process  -*- lexical-binding: t; -*-
 
-(require 'websocket)
-(require 'ansi-color)
+(require 'jsonrpc)
+(require 'json)
 
 (defvar emacs-backbone-buffer-name "*emacs-backbone*")
 (defvar emacs-backbone-enable-debug nil)
 (defvar emacs-backbone--initialized nil)
 (defvar emacs-backbone--process nil)
+(defvar emacs-backbone--packages-finished-sent nil)
+(defvar emacs-backbone--packages-installation-active nil)
+(defvar emacs-backbone--package-timeout-timer nil)
+
+(defcustom emacs-backbone-package-timeout-seconds 300
+  "No-progress timeout (seconds) before proceeding with configuration."
+  :type 'integer
+  :group 'emacs-backbone)
 
 (defcustom emacs-backbone-user-directory
   (expand-file-name "~/.config/backbone")
@@ -27,143 +35,140 @@ or searches PATH for 'gleam' executable."
   :type 'string
   :group 'emacs-backbone)
 
-(defun emacs-backbone-get-free-port ()
-  (save-excursion
-    (let* ((process-buffer " *temp*")
-           (process (make-network-process
-                     :name process-buffer
-                     :buffer process-buffer
-                     :family 'ipv4
-                     :server t
-                     :host "127.0.0.1"
-                     :service t))
-           port)
-      (setq port (process-contact process))
-      (delete-process process)
-      (kill-buffer process-buffer)
-      (format "%s" (cadr port)))))
+(defclass emacs-backbone-connection (jsonrpc-process-connection) ()
+  :documentation "JSON-RPC connection to the Backbone Gleam process.")
 
-(cl-defmacro emacs-backbone-start ()
-  (if (not (null emacs-backbone--process))
-      (message "[Backbone] processs has started.")
-    (let* ((backbone-port (emacs-backbone-get-free-port))
-           (emacs-port (emacs-backbone-get-free-port))
-           (server (intern "emacs-backbone-server"))
-           (process (intern "emacs-backbone-process"))
-           (process-buffer emacs-backbone-buffer-name)
-           (client (intern "emacs-backbone-client")))
-      `(let ((process-environment (cons "NO_COLOR=true" process-environment))
-             (default-directory user-emacs-directory))
-         (defvar ,process nil)
-         (defvar ,server nil)
-         (defvar ,client nil)
+(defun emacs-backbone--handle-notification (_conn method params)
+  "Handle incoming JSON-RPC notifications from the Gleam process.
+METHOD is an interned symbol. PARAMS is a plist."
+  (pcase method
+    ('show-message (message "%s" (plist-get params :content)))
+    ('eval-code
+     (condition-case err
+         (eval (read (plist-get params :content)))
+       (error (message "[Backbone] eval-code error: %S" err))))))
 
-         (setq ,server
-               (websocket-server
-                ,emacs-port
-                :host 'local
-                :on-message (lambda (_websocket frame)
-                              (let ((text (websocket-frame-text frame))
-                                    (opcode (websocket-frame-opcode frame))) ; Use this accessor
+(defun emacs-backbone--handle-request (_conn method params)
+  "Handle incoming JSON-RPC requests from the Gleam process.
+METHOD is an interned symbol. PARAMS is a plist.
+Return value is sent back as the JSON-RPC response."
+  (pcase method
+    ('fetch-var
+     (let ((result (eval (read (plist-get params :expr)))))
+       (json-encode result)))))
 
-                                ;; Only process text frames
-                                (when (eq opcode 'text)
-                                  (condition-case err
-                                      (let* ((info (json-parse-string text))
-                                             (info-type (gethash "type" info nil)))
-                                        (pcase info-type
-                                          ("show-message" (message (gethash "content" info nil)))
-                                          ("eval-code" (eval (read (gethash "content" info nil))))
-                                          ("fetch-var" (thread-last
-                                                         (eval (read (gethash "content" info nil)))
-                                                         (json-encode)
-                                                         (websocket-send-text _websocket)))))
-                                    (json-parse-error
-                                     (when emacs-backbone-enable-debug
-                                       (message "Received malformed JSON in text frame: %S" text)))))))
+(defun emacs-backbone-start ()
+  "Start the Backbone process and establish JSON-RPC connection."
+  (interactive)
+  (if emacs-backbone--process
+      (message "[Backbone] Process already running.")
+    (let* ((default-directory user-emacs-directory)
+           (process-environment (cons "NO_COLOR=true" process-environment))
+           (stderr-buffer (get-buffer-create "*emacs-backbone-stderr*"))
+           (conn (make-instance
+                  'emacs-backbone-connection
+                  :name "emacs-backbone"
+                  :process (make-process
+                            :name "emacs-backbone"
+                            :command (list emacs-backbone-gleam-executable "run")
+                            :connection-type 'pipe
+                            :stderr stderr-buffer
+                            :noquery t)
+                  :notification-dispatcher #'emacs-backbone--handle-notification
+                  :request-dispatcher #'emacs-backbone--handle-request)))
 
-                :on-open (lambda (_websocket)
-                           (setq ,client (websocket-open (format "ws://127.0.0.1:%s" ,backbone-port)))
-                           (unless emacs-backbone--initialized
-                             (emacs-backbone--call "init")
-                             (setq emacs-backbone--initialized t)))
+      (setq emacs-backbone--process conn)
 
-                :on-close (lambda (_websocket))
-                :on-error (lambda (_websocket type err)
-                            (display-warning 'websocket
-                                             (format "in callback `%S': %s"
-                                                     type
-                                                     (websocket-format-error err))
-                                             :error)
-                            ;; Check if the connection is still open before sending
-                            (when (and (websocket-openp _websocket)
-                                       (eq (websocket-ready-state _websocket) 'open))
-                              (condition-case nil
-                                  (thread-last
-                                    (list "error" (websocket-format-error err))
-                                    (json-encode)
-                                    (websocket-send-text _websocket))
-                                (error nil))))))
-
-         (setq ,process
-               (start-process "emacs-backbone" ,process-buffer emacs-backbone-gleam-executable "run" "--" ,backbone-port ,emacs-port))
-
-         (set-process-query-on-exit-flag ,process nil)
-
-         ;; Make sure ANSI color render correctly.
-         (set-process-sentinel
-          ,process
-          (lambda (p _m)
-            (when (eq 0 (process-exit-status p))
-              (with-current-buffer (process-buffer p)
-                (ansi-color-apply-on-region (point-min) (point-max))))))
-
-         (setq emacs-backbone--process ,process)))))
+      ;; Send init request to Gleam
+      (jsonrpc-async-request conn "init" nil
+        :success-fn (lambda (_result)
+                      (setq emacs-backbone--initialized t))
+        :error-fn (lambda (err)
+                    (message "[Backbone] Init failed: %s" err))))))
 
 (defun emacs-backbone-exit ()
-  "Gracefully shut down the Emacs Backbone connection."
+  "Shut down the Backbone process gracefully."
   (interactive)
-  (unless emacs-backbone--process
-    (user-error "[Backbone] No active process to terminate"))
-
-  ;; Close client connection first
-  ;; Send shutdown signal to Gleam process
-  (when-let* ((client-sym (intern-soft "emacs-backbone-client"))
-              (client (and (boundp client-sym) (symbol-value client-sym))))
+  (when emacs-backbone--process
     (condition-case nil
         (progn
-          (->> (list "data" '("shutdown"))
-               (json-encode)
-               (websocket-send-text client))
-          ;; Give the server a moment to process the shutdown message
-          (sleep-for 0.1))
+          ;; Send shutdown notification for graceful cleanup
+          (jsonrpc-notify emacs-backbone--process "shutdown" nil)
+          ;; Give the process a moment to handle the shutdown
+          (sit-for 0.1)
+          (jsonrpc-shutdown emacs-backbone--process))
       (error nil))
-    (websocket-close client)
-    (makunbound client-sym))
-
-  ;; Close server
-  (when-let* ((server-sym (intern-soft "emacs-backbone-server"))
-              (server (and (boundp server-sym) (symbol-value server-sym))))
-    (websocket-server-close server)
-    (makunbound server-sym))
-
-  ;; Kill process buffer if it exists
-  (when-let* ((proc-sym (intern-soft "emacs-backbone-process"))
-              (proc-buffer (get-buffer emacs-backbone-buffer-name)))
-    (when (buffer-live-p proc-buffer)
-      (kill-buffer proc-buffer))
-    (when (boundp proc-sym)
-      (makunbound proc-sym)))
-
-  (setq emacs-backbone--initialized nil
-        emacs-backbone--process nil)
-  (message "[Backbone] Successfully disconnected"))
+    (setq emacs-backbone--process nil
+          emacs-backbone--initialized nil)
+    (message "[Backbone] Disconnected")))
 
 (add-hook 'kill-emacs-hook #'emacs-backbone-exit)
 
+(defun emacs-backbone--begin-package-installation ()
+  "Reset package completion state and start the no-progress timer."
+  (setq emacs-backbone--packages-installation-active t)
+  (setq emacs-backbone--packages-finished-sent nil)
+  (emacs-backbone--start-package-timeout))
+
+(defun emacs-backbone--start-package-timeout ()
+  "Start or restart the no-progress timer."
+  (emacs-backbone--cancel-package-timeout)
+  (setq emacs-backbone--package-timeout-timer
+        (run-at-time emacs-backbone-package-timeout-seconds nil
+                     #'emacs-backbone--package-timeout)))
+
+(defun emacs-backbone--reset-package-timeout ()
+  "Reset the no-progress timer if installation is active."
+  (when (and emacs-backbone--packages-installation-active
+             emacs-backbone--package-timeout-timer)
+    (emacs-backbone--start-package-timeout)))
+
+(defun emacs-backbone--cancel-package-timeout ()
+  "Cancel the no-progress timer if it exists."
+  (when emacs-backbone--package-timeout-timer
+    (cancel-timer emacs-backbone--package-timeout-timer)
+    (setq emacs-backbone--package-timeout-timer nil)))
+
+(defun emacs-backbone--package-timeout ()
+  "Handle no-progress timeout by proceeding with configuration."
+  (setq emacs-backbone--package-timeout-timer nil)
+  (emacs-backbone--notify-packages-finished "timeout"))
+
+(defun emacs-backbone--notify-packages-finished (&optional reason)
+  "Send a packages_finished notification once per installation."
+  (when emacs-backbone--packages-installation-active
+    (unless emacs-backbone--packages-finished-sent
+      (setq emacs-backbone--packages-finished-sent t)
+      (setq emacs-backbone--packages-installation-active nil)
+      (emacs-backbone--cancel-package-timeout)
+      (if reason
+          (emacs-backbone--call "packages_finished" reason)
+        (emacs-backbone--call "packages_finished")))))
+
+(defun emacs-backbone--elpaca-queues-finished ()
+  "Notify Backbone after Elpaca finishes all queues."
+  (emacs-backbone--notify-packages-finished "completed"))
+
+(when (boundp 'elpaca--post-queues-hook)
+  (remove-hook 'elpaca--post-queues-hook #'emacs-backbone--elpaca-queues-finished)
+  (add-hook 'elpaca--post-queues-hook #'emacs-backbone--elpaca-queues-finished))
+
 (defun emacs-backbone--call (&rest func-args)
-  "Call emacs-backbone function from Emacs."
-  (if (null emacs-backbone--process)
-      (message "[Backbone] process has exited.")
-    (websocket-send-text (symbol-value (intern-soft "emacs-backbone-client"))
-                         (json-encode (list "data" func-args)))))
+  "Send a JSON-RPC message to the Backbone process.
+Preserves the same call signature used by generated packages.el code."
+  (when emacs-backbone--process
+    (pcase func-args
+      (`("init" . ,_)
+       (jsonrpc-async-request emacs-backbone--process "init" nil
+         :success-fn (lambda (_) nil)
+         :error-fn (lambda (err) (message "[Backbone] init error: %s" err))))
+      (`("package_installed" ,name . ,_)
+       (jsonrpc-notify emacs-backbone--process "package_installed"
+                       `(:name ,name)))
+      (`("packages_finished" . ,rest)
+       (let ((reason (car rest)))
+         (jsonrpc-notify emacs-backbone--process "packages_finished"
+                         (when reason `(:reason ,reason)))))
+      (`(,method . ,args)
+       (jsonrpc-notify emacs-backbone--process method
+                       (when args `(:args ,(vconcat args))))))))
