@@ -5,6 +5,8 @@ import gleam/float
 import gleam/int
 import gleam/io
 import gleam/json
+import gleam/list
+import gleam/option.{None, Some}
 import gleam/string
 import gleam/time/duration
 import gleam/time/timestamp
@@ -101,13 +103,7 @@ fn handle_notification(
           case status.all_installed {
             True -> {
               io.println_error(
-                "All packages installed, continuing with configuration",
-              )
-              after_package_installation_handler(
-                EmacsContext(
-                  ..context,
-                  installed_packages_count: status.total,
-                ),
+                "All packages installed, waiting for queue completion",
               )
             }
             False -> Nil
@@ -119,6 +115,34 @@ fn handle_notification(
             <> string.inspect(params),
           )
       }
+    }
+    "packages_finished" -> {
+      let reason_decoder = {
+        use reason <- decode.optional_field(
+          "reason",
+          None,
+          decode.optional(decode.string),
+        )
+        decode.success(reason)
+      }
+      let reason = case decode.run(params, reason_decoder) {
+        Ok(value) -> value
+        Error(_) -> None
+      }
+
+      case reason {
+        Some(value) ->
+          io.println_error(
+            "Packages finished (" <> value <> "), continuing with configuration",
+          )
+        None ->
+          io.println_error("Packages finished, continuing with configuration")
+      }
+
+      let status = package_tracker.get_package_tracker()
+      after_package_installation_handler(
+        EmacsContext(..context, installed_packages_count: status.total),
+      )
     }
     _ -> unhandle(context, method)
   }
@@ -195,11 +219,21 @@ fn compose_packages_installation(ctx: EmacsContext) -> CommandResult(String) {
   // Initialize the package tracker in JavaScript
   package_tracker.initialize(package_list)
 
-  // Load the packages.el file
-  emacs.eval_with_return(timeout_seconds: 10 * 60)(
-    "load-file",
-    StringParam([packages_el_path]),
-  )
+  case list.is_empty(package_list) {
+    True -> {
+      io.println_error("No packages declared, continuing with configuration")
+      after_package_installation_handler(
+        EmacsContext(..ctx, installed_packages_count: 0),
+      )
+      monadic.pure("")
+    }
+    False ->
+      // Load the packages.el file
+      emacs.eval_with_return(timeout_seconds: 10 * 60)(
+        "load-file",
+        StringParam([packages_el_path]),
+      )
+  }
 }
 
 fn after_package_installation_handler(ctx: EmacsContext) -> Nil {

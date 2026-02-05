@@ -7,6 +7,14 @@
 (defvar emacs-backbone-enable-debug nil)
 (defvar emacs-backbone--initialized nil)
 (defvar emacs-backbone--process nil)
+(defvar emacs-backbone--packages-finished-sent nil)
+(defvar emacs-backbone--packages-installation-active nil)
+(defvar emacs-backbone--package-timeout-timer nil)
+
+(defcustom emacs-backbone-package-timeout-seconds 300
+  "No-progress timeout (seconds) before proceeding with configuration."
+  :type 'integer
+  :group 'emacs-backbone)
 
 (defcustom emacs-backbone-user-directory
   (expand-file-name "~/.config/backbone")
@@ -96,6 +104,55 @@ Return value is sent back as the JSON-RPC response."
 
 (add-hook 'kill-emacs-hook #'emacs-backbone-exit)
 
+(defun emacs-backbone--begin-package-installation ()
+  "Reset package completion state and start the no-progress timer."
+  (setq emacs-backbone--packages-installation-active t)
+  (setq emacs-backbone--packages-finished-sent nil)
+  (emacs-backbone--start-package-timeout))
+
+(defun emacs-backbone--start-package-timeout ()
+  "Start or restart the no-progress timer."
+  (emacs-backbone--cancel-package-timeout)
+  (setq emacs-backbone--package-timeout-timer
+        (run-at-time emacs-backbone-package-timeout-seconds nil
+                     #'emacs-backbone--package-timeout)))
+
+(defun emacs-backbone--reset-package-timeout ()
+  "Reset the no-progress timer if installation is active."
+  (when (and emacs-backbone--packages-installation-active
+             emacs-backbone--package-timeout-timer)
+    (emacs-backbone--start-package-timeout)))
+
+(defun emacs-backbone--cancel-package-timeout ()
+  "Cancel the no-progress timer if it exists."
+  (when emacs-backbone--package-timeout-timer
+    (cancel-timer emacs-backbone--package-timeout-timer)
+    (setq emacs-backbone--package-timeout-timer nil)))
+
+(defun emacs-backbone--package-timeout ()
+  "Handle no-progress timeout by proceeding with configuration."
+  (setq emacs-backbone--package-timeout-timer nil)
+  (emacs-backbone--notify-packages-finished "timeout"))
+
+(defun emacs-backbone--notify-packages-finished (&optional reason)
+  "Send a packages_finished notification once per installation."
+  (when emacs-backbone--packages-installation-active
+    (unless emacs-backbone--packages-finished-sent
+      (setq emacs-backbone--packages-finished-sent t)
+      (setq emacs-backbone--packages-installation-active nil)
+      (emacs-backbone--cancel-package-timeout)
+      (if reason
+          (emacs-backbone--call "packages_finished" reason)
+        (emacs-backbone--call "packages_finished")))))
+
+(defun emacs-backbone--elpaca-queues-finished ()
+  "Notify Backbone after Elpaca finishes all queues."
+  (emacs-backbone--notify-packages-finished "completed"))
+
+(when (boundp 'elpaca--post-queues-hook)
+  (remove-hook 'elpaca--post-queues-hook #'emacs-backbone--elpaca-queues-finished)
+  (add-hook 'elpaca--post-queues-hook #'emacs-backbone--elpaca-queues-finished))
+
 (defun emacs-backbone--call (&rest func-args)
   "Send a JSON-RPC message to the Backbone process.
 Preserves the same call signature used by generated packages.el code."
@@ -108,6 +165,10 @@ Preserves the same call signature used by generated packages.el code."
       (`("package_installed" ,name . ,_)
        (jsonrpc-notify emacs-backbone--process "package_installed"
                        `(:name ,name)))
+      (`("packages_finished" . ,rest)
+       (let ((reason (car rest)))
+         (jsonrpc-notify emacs-backbone--process "packages_finished"
+                         (when reason `(:reason ,reason)))))
       (`(,method . ,args)
        (jsonrpc-notify emacs-backbone--process method
                        (when args `(:args ,(vconcat args))))))))

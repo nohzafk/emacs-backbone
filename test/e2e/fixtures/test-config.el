@@ -15,18 +15,18 @@
 
 ;; Declare config units
 (config-unit! test-unit-1
-  "First test unit - runs immediately"
+  :config
   (defvar test-unit-1-loaded t "Marker that unit 1 loaded."))
 
 (config-unit! test-unit-2
   :after (test-unit-1)
-  "Second test unit - depends on unit 1"
+  :config
   (defvar test-unit-2-loaded t "Marker that unit 2 loaded."))
 
 (config-unit! test-unit-3
   :requires (f)
   :after (test-unit-2)
-  "Third test unit - requires f package and depends on unit 2"
+  :config
   (defvar test-unit-3-loaded t "Marker that unit 3 loaded.")
   ;; Verify f is available
   (when (fboundp 'f-exists-p)

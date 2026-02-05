@@ -146,10 +146,31 @@ jobs:
             exit 1
           fi
 
+      - name: Run failed ref E2E test
+        env:
+          PROJECT_ROOT: ${{ github.workspace }}
+        run: |
+          emacs --batch \
+            --eval "(setq user-emacs-directory \"$PWD/\")" \
+            -l test/e2e/test-failed-ref.el \
+            2>&1 | tee failed-ref-output.txt
+
+          # Check if test passed
+          if grep -q "Failed ref E2E test PASSED" failed-ref-output.txt; then
+            echo "Failed ref test passed!"
+            exit 0
+          else
+            echo "Failed ref test failed!"
+            cat failed-ref-output.txt
+            exit 1
+          fi
+
       - name: Upload test output on failure
         uses: actions/upload-artifact@v4
         if: failure()
         with:
           name: e2e-full-flow-output
-          path: full-flow-output.txt
+          path: |
+            full-flow-output.txt
+            failed-ref-output.txt
           retention-days: 3
