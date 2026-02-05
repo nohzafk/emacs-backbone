@@ -91,14 +91,15 @@
 (defvar emacs-backbone-packages nil)
 (defvar emacs-backbone-units nil)
 
-;; Mock functions
+;; Mock functions that return JSON-compatible values
 (defun emacs-backbone-get-packages ()
-  "Return empty package list for testing."
-  '())
+  "Return empty package list for testing.
+Returns a vector so it encodes as JSON array [] instead of null."
+  [])
 
 (defun emacs-backbone-get-units ()
   "Return empty unit list for testing."
-  '())
+  [])
 
 (defun backbone-load-envvars-file (_file)
   "Mock env loading."
