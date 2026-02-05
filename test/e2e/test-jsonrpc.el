@@ -71,7 +71,7 @@
   (when test-connection
     (condition-case nil
         (progn
-          (jsonrpc-notify test-connection "shutdown" nil)
+          (jsonrpc-notify test-connection :shutdown nil)
           (sit-for 0.2)
           (jsonrpc-shutdown test-connection))
       (error nil))
@@ -143,7 +143,8 @@
       (condition-case err
           (progn
             ;; Send init request - this triggers Gleam to call fetch-var
-            (jsonrpc-async-request test-connection "init" nil
+            ;; Use keyword :init as method name for compatibility across Emacs versions
+            (jsonrpc-async-request test-connection :init nil
               :success-fn (lambda (_) (message "[TEST] Init success"))
               :error-fn (lambda (e) (message "[TEST] Init error: %S" e)))
 
