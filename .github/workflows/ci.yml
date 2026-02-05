@@ -51,11 +51,16 @@ jobs:
         with:
           version: ${{ matrix.emacs_version }}
 
-      - name: Setup Gleam
+      - name: Setup Gleam (Linux)
+        if: runner.os == 'Linux'
         uses: erlef/setup-beam@v1
         with:
           otp-version: "27"
           gleam-version: "1.14.0"
+
+      - name: Setup Gleam (macOS)
+        if: runner.os == 'macOS'
+        run: brew install gleam
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
