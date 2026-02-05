@@ -2,27 +2,93 @@ name: CI
 
 on:
   push:
+    branches: [main, json-rpc]
   pull_request:
-    branches: [main, master]
+    branches: [main]
+  workflow_dispatch:
 
 jobs:
-  build:
+  unit-tests:
+    name: Unit Tests
     runs-on: ubuntu-latest
-
     steps:
       - uses: actions/checkout@v4
-
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
 
       - name: Setup Gleam
         uses: erlef/setup-beam@v1
         with:
           otp-version: "27"
-          gleam-version: "1.13.0"
+          gleam-version: "1.6.3"
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
 
       - name: Install dependencies
         run: gleam deps download
 
+      - name: Run tests
+        run: gleam test
+
       - name: Build
         run: gleam build
+
+  e2e-test:
+    name: E2E Test
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        emacs_version: ["29.4"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Emacs
+        uses: purcell/setup-emacs@master
+        with:
+          version: ${{ matrix.emacs_version }}
+
+      - name: Setup Gleam
+        uses: erlef/setup-beam@v1
+        with:
+          otp-version: "27"
+          gleam-version: "1.6.3"
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install Gleam dependencies
+        run: gleam deps download
+
+      - name: Build Gleam project
+        run: gleam build
+
+      - name: Run E2E test
+        run: |
+          emacs --batch \
+            --eval "(setq user-emacs-directory \"$PWD/\")" \
+            -l test/e2e/test-jsonrpc.el \
+            2>&1 | tee e2e-output.txt
+
+          # Check if test passed
+          if grep -q "E2E test PASSED" e2e-output.txt; then
+            echo "E2E test passed!"
+            exit 0
+          else
+            echo "E2E test failed!"
+            cat e2e-output.txt
+            exit 1
+          fi
+
+      - name: Upload test output on failure
+        uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: e2e-output-${{ matrix.os }}-${{ matrix.emacs_version }}
+          path: e2e-output.txt
+          retention-days: 3
