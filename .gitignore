@@ -16,6 +16,7 @@ tree-sitter/
 
 # Emacs user state files
 .custom.el
+.persistent-scratch
 .projectile-cache.eld
 history.el
 history
