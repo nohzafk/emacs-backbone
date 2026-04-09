@@ -43,6 +43,62 @@ Every package and configuration unit declares its dependencies explicitly, and t
 
 I happened to be learning Gleam when this idea crystallized, and it turned out to be the perfect choice. Gleam's strong static type system and compiler give me confidence that **once it compiles, it will work**. The compiler catches potential issues before runtime, which is exactly the kind of reliability I was seeking for my Emacs configuration. This compile-time safety complements the deterministic runtime behavior - together they ensure that configuration problems are caught early and behavior remains consistent.
 
+<details>
+
+<summary>Why not just `use-package :after`?</summary>
+
+A common question is: *If `use-package` has the `:after` keyword, why do we need `config-unit!` and an external orchestrator?* 
+
+The short answer is that `use-package` is an excellent **package loader**, but a very limited **state manager**. When your configuration scales, relying solely on `:after` for dependency management breaks down in a few critical ways.
+
+### 1. The Cross-Package Integration Problem (N-to-N)
+
+The most glaring limitation of `use-package :after` is handling configurations that depend on *multiple* packages being loaded and configured first. 
+
+Take the `evil-org` package as an example. To configure it properly, you need both `evil` and `org` to be fully initialized. Where does the integration code go? With `use-package`, you are forced into awkward, tightly coupled nesting:
+
+```elisp
+;; The use-package way: Awkward and conceptually messy
+(use-package org
+  :config
+  ;; Do org stuff...
+  (use-package evil-org
+    :after evil
+    :config
+    ;; Wait, does this belong in the 'org' block or the 'evil' block?
+    (evil-org-set-key-theme)))
+```
+
+This forces your integration logic to live inside the namespace of a single, arbitrary package. 
+
+With `emacs-backbone` and `config-unit!`, you decouple the integration entirely. You create a distinct, independent unit that explicitly declares its upstream dependencies. It sits perfectly at the intersection of the two, keeping your base package configs clean:
+
+```elisp
+;; The emacs-backbone way: Clean, decoupled dependency declaration
+(config-unit! evil-org-integration
+  :depends-on (org-base evil-base)
+  :body
+  (use-package evil-org
+    :config
+    (evil-org-set-key-theme)))
+```
+
+### 2. Reactivity vs. Determinism 
+
+Under the hood, `use-package :after` is just syntactic sugar for Emacs's built-in `with-eval-after-load`. This is a **reactive** system. It tells Emacs: *"Keep an eye out, and if package X ever happens to load, run this code."* 
+
+Because it is reactive, your configuration's execution order is highly vulnerable to the physical order of your `init.el` file, autoload triggers, or user actions. This is a common source of silent failures, race conditions, and infinite loading loops.
+
+`emacs-backbone` is **deterministic**. The Gleam backend reads your `config-unit!` declarations, parses them into a strict Directed Acyclic Graph (DAG), and uses topological sorting to guarantee mathematically perfect execution order over JSON-RPC. The physical location of the code in your files no longer matters; the dependencies dictate the flow.
+
+### 3. Granularity of State
+
+`use-package` operates strictly at the *package* level—it waits for a package to call `(provide 'some-package)`. 
+
+However, in advanced Emacs setups, you often need to depend on a *logical state*, not just a package. For example, you might want your customized modeline to load only after your entire "UI Framework" (fonts, themes, and fringes) is fully configured. `config-unit!` allows you to depend on arbitrary blocks of configuration state to resolve, giving you orchestration granularity that `use-package` simply cannot provide.
+
+</details>
+
 ## Overview
 
 Emacs Backbone separates the configuration framework from user configuration, similar to Doom Emacs:
