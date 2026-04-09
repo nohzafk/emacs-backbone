@@ -172,6 +172,20 @@ This replaces the traditional Emacs configuration chaos with a **predictable, re
 - **Config Units**: Use `config-unit!` macro for dependency-ordered configuration blocks
 - **Async Communication**: Bidirectional WebSocket protocol between Gleam and Emacs
 
+### Elpaca Compatibility
+
+Emacs Backbone currently bootstraps against **Elpaca installer version `0.12`** in
+[lisp/package-manager.el](/Users/randallwang/projects/emacs-backbone/lisp/package-manager.el).
+
+This integration currently depends on some Elpaca implementation details, not
+just its public user-facing configuration surface. In particular, Backbone has
+workarounds for **split packages in a shared monorepo checkout**, such as
+`magit-section` living inside the shared `magit` repository checkout.
+
+That means Elpaca upgrades should be treated as compatibility work: if Elpaca's
+shared-source, clone-skip, or dependency-detection internals change, Backbone's
+integration may need to be updated as well.
+
 ## Installation
 
 ### Prerequisites
