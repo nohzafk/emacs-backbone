@@ -76,11 +76,10 @@ With `emacs-backbone` and `config-unit!`, you decouple the integration entirely.
 ```elisp
 ;; The emacs-backbone way: Clean, decoupled dependency declaration
 (config-unit! evil-org-integration
-  :depends-on (org-base evil-base)
-  :body
-  (use-package evil-org
-    :config
-    (evil-org-set-key-theme)))
+  :requires (evil-org)
+  :after (org-base evil-base)
+  :config
+  (evil-org-set-key-theme))
 ```
 
 ### 2. Reactivity vs. Determinism 
