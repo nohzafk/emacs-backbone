@@ -68,7 +68,7 @@ Return value is sent back as the JSON-RPC response."
            (conn (make-instance
                   'emacs-backbone-connection
                   :name "emacs-backbone"
-                  :events-buffer-scrollback-size (if emacs-backbone-enable-debug nil 0)
+                  :events-buffer-config `(:size ,(if emacs-backbone-enable-debug nil 0))
                   :process (make-process
                             :name "emacs-backbone"
                             :command (list emacs-backbone-gleam-executable "run")

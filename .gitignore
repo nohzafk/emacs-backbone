@@ -30,3 +30,4 @@ blink-search.db
 
 # Environment variable dump (may contain sensitive data)
 env
+/.agent-shell/
