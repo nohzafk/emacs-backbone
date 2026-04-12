@@ -1,6 +1,6 @@
 # Emacs Backbone
 
-An external orchestration program (written in Gleam) that manages Emacs configuration through bidirectional WebSocket communication, providing deterministic, dependency-aware package installation and configuration management inspired by NixOS principles.
+An external orchestration program (written in Gleam) that manages Emacs configuration through bidirectional JSON-RPC over stdio, providing deterministic, dependency-aware package installation and configuration management inspired by NixOS principles.
 
 ## Motivation
 
@@ -198,18 +198,18 @@ This replaces the traditional Emacs configuration chaos with a **predictable, re
 ~/.config/emacs/                           # Core system (this repository)
 ├── src/                                   # Gleam backend
 │   ├── emacs_backbone.gleam              # Entry point
-│   ├── websocket.gleam                    # WebSocket communication
+│   ├── jsonrpc.gleam                      # JSON-RPC communication over stdio
 │   ├── resolver.gleam                     # Dependency resolution
 │   └── ...
 ├── lisp/                                  # Core Emacs Lisp framework
-│   ├── backbone.el                       # WebSocket client & lifecycle
+│   ├── backbone.el                       # JSON-RPC client & lifecycle
 │   ├── macro-package.el                   # package! macro
 │   ├── macro-config-unit.el               # config-unit! macro
 │   └── ...
 ├── init.el                                # Core initialization
 ├── early-init.el                          # Early initialization
 ├── gleam.toml                             # Gleam project config
-└── package.json                           # Bun/JavaScript dependencies
+└── package.json                           # JavaScript module metadata
 
 ~/.config/backbone/                 # User configuration (you create this)
 ├── early-init.el                          # Your early initialization (optional)
@@ -225,7 +225,7 @@ This replaces the traditional Emacs configuration chaos with a **predictable, re
 - **Literate Configuration**: Write your config in Org mode (`config.org`) with tangling support
 - **Declarative Packages**: Use `package!` macro for reproducible package management (Elpaca integration)
 - **Config Units**: Use `config-unit!` macro for dependency-ordered configuration blocks
-- **Async Communication**: Bidirectional WebSocket protocol between Gleam and Emacs
+- **Async Communication**: Bidirectional JSON-RPC over stdio between Gleam and Emacs
 
 ### Elpaca Compatibility
 
@@ -247,7 +247,7 @@ integration may need to be updated as well.
 
 - **Emacs** 29+ (with native compilation support recommended)
 - **Gleam** (for the backend orchestrator)
-- **Bun** (JavaScript runtime for WebSocket FFI)
+- **Bun** (JavaScript runtime for JSON-RPC stdio FFI)
 
 #### Installing Bun
 
@@ -272,13 +272,7 @@ For more installation options, see [Bun installation docs](https://bun.sh/docs/i
    cd ~/.config/emacs
    ```
 
-2. **Install dependencies:**
-
-   ```bash
-   bun install
-   ```
-
-3. **Build the Gleam backend:**
+2. **Build the Gleam backend:**
 
    ```bash
    gleam build
