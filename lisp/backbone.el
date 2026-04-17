@@ -1,5 +1,6 @@
 ;;; backbone.el --- JSON-RPC connection to Backbone Gleam process  -*- lexical-binding: t; -*-
 
+(require 'cl-lib)
 (require 'jsonrpc)
 (require 'json)
 
@@ -13,6 +14,11 @@
 
 (defcustom emacs-backbone-package-timeout-seconds 300
   "No-progress timeout (seconds) before proceeding with configuration."
+  :type 'integer
+  :group 'emacs-backbone)
+
+(defcustom emacs-backbone-package-timeout-log-limit 10
+  "Maximum number of unfinished Elpaca orders to include in timeout diagnostics."
   :type 'integer
   :group 'emacs-backbone)
 
@@ -37,6 +43,63 @@ or searches PATH for 'gleam' executable."
 
 (defclass emacs-backbone-connection (jsonrpc-process-connection) ()
   :documentation "JSON-RPC connection to the Backbone Gleam process.")
+
+(defun emacs-backbone--log-diagnostic (fmt &rest args)
+  "Write a formatted diagnostic message to `*Messages*' and Backbone stderr."
+  (let ((line (apply #'format fmt args)))
+    (message "%s" line)
+    (when-let ((buffer (get-buffer "*emacs-backbone-stderr*")))
+      (with-current-buffer buffer
+        (goto-char (point-max))
+        (insert line "\n")))))
+
+(defun emacs-backbone--active-elpaca-queue ()
+  "Return the current incomplete Elpaca queue, or nil when unavailable."
+  (when (boundp 'elpaca--queues)
+    (cl-find 'incomplete (reverse elpaca--queues) :key #'elpaca-q<-status)))
+
+(defun emacs-backbone--unfinished-elpaca-orders (&optional queue)
+  "Return unfinished Elpaca orders from QUEUE.
+If QUEUE is nil, inspect the current incomplete queue."
+  (when-let* ((q (or queue (emacs-backbone--active-elpaca-queue))))
+    (cl-loop for (_id . order) in (elpaca-q<-elpacas q)
+             unless (eq (elpaca--status order) 'finished)
+             collect order)))
+
+(defun emacs-backbone--format-elpaca-order (order)
+  "Return a compact diagnostic summary for Elpaca ORDER."
+  (format "%s status=%s steps=%S blockers=%S source=%s build=%s"
+          (elpaca<-id order)
+          (elpaca--status order)
+          (elpaca<-statuses order)
+          (elpaca<-blockers order)
+          (or (elpaca<-source-dir order) "<none>")
+          (or (elpaca<-build-dir order) "<none>")))
+
+(defun emacs-backbone--log-package-timeout-context ()
+  "Log diagnostic context for a stalled Elpaca queue."
+  (if-let* ((queue (emacs-backbone--active-elpaca-queue)))
+      (let* ((orders (emacs-backbone--unfinished-elpaca-orders queue))
+             (count (length orders))
+             (limit emacs-backbone-package-timeout-log-limit)
+             (displayed (cl-subseq orders 0 (min count limit))))
+        (emacs-backbone--log-diagnostic
+         "[Backbone] Package installation timed out. queue=%s status=%s processed=%s total=%s unfinished=%s"
+         (elpaca-q<-id queue)
+         (elpaca-q<-status queue)
+         (elpaca-q<-processed queue)
+         (length (elpaca-q<-elpacas queue))
+         count)
+        (dolist (order displayed)
+          (emacs-backbone--log-diagnostic
+           "[Backbone] stalled order: %s"
+           (emacs-backbone--format-elpaca-order order)))
+        (when (> count limit)
+          (emacs-backbone--log-diagnostic
+           "[Backbone] ... %s more unfinished orders omitted"
+           (- count limit))))
+    (emacs-backbone--log-diagnostic
+     "[Backbone] Package installation timed out, but no active Elpaca queue was found.")))
 
 (defun emacs-backbone--handle-notification (_conn method params)
   "Handle incoming JSON-RPC notifications from the Gleam process.
@@ -133,6 +196,7 @@ Return value is sent back as the JSON-RPC response."
 (defun emacs-backbone--package-timeout ()
   "Handle no-progress timeout by proceeding with configuration."
   (setq emacs-backbone--package-timeout-timer nil)
+  (emacs-backbone--log-package-timeout-context)
   (emacs-backbone--notify-packages-finished "timeout"))
 
 (defun emacs-backbone--notify-packages-finished (&optional reason)
