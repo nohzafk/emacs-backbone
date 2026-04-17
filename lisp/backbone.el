@@ -23,6 +23,11 @@
   :type 'integer
   :group 'emacs-backbone)
 
+(defcustom emacs-backbone-open-debug-buffers-on-timeout t
+  "When non-nil, open Backbone/Elpaca debug buffers after a package timeout."
+  :type 'boolean
+  :group 'emacs-backbone)
+
 (defcustom emacs-backbone-user-directory
   (expand-file-name "~/.config/backbone")
   "Directory containing user configuration for Emacs Backbone.
@@ -101,6 +106,14 @@ If QUEUE is nil, inspect the current incomplete queue."
            (- count limit))))
     (emacs-backbone--log-diagnostic
      "[Backbone] Package installation timed out, but no active Elpaca queue was found.")))
+
+(defun emacs-backbone--handle-package-timeout-visibility ()
+  "Surface timeout debugging entry points to the user."
+  (emacs-backbone--log-diagnostic
+   "[Backbone] Run M-x emacs-backbone-open-package-debug for live timeout details.")
+  (when (and emacs-backbone-open-debug-buffers-on-timeout
+             (not noninteractive))
+    (run-at-time 0 nil #'emacs-backbone-open-package-debug)))
 
 (defun emacs-backbone--package-timeout-deadline ()
   "Return the timeout deadline as an Emacs time value, or nil if inactive."
@@ -293,6 +306,7 @@ Return value is sent back as the JSON-RPC response."
   "Handle no-progress timeout by proceeding with configuration."
   (setq emacs-backbone--package-timeout-timer nil)
   (emacs-backbone--log-package-timeout-context)
+  (emacs-backbone--handle-package-timeout-visibility)
   (emacs-backbone--notify-packages-finished "timeout"))
 
 (defun emacs-backbone--notify-packages-finished (&optional reason)
