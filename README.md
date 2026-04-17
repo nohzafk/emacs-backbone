@@ -377,6 +377,8 @@ Enable verbose logging and debugging output:
 - `M-x emacs-backbone-tangle-config` - Tangle `config.org` to `config.el`
 - `M-x emacs-backbone-reload-config` - Full reload: tangle + reinitialize
 
+The Gleam backend is managed over stdio, so it exits with Emacs. There is no separate manual shutdown command.
+
 ### Keybindings
 
 - `C-h r e` - Tangle configuration
