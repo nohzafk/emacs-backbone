@@ -5,6 +5,7 @@
 (require 'json)
 
 (defvar emacs-backbone-buffer-name "*emacs-backbone*")
+(defvar emacs-backbone-status-buffer-name "*emacs-backbone-status*")
 (defvar emacs-backbone-enable-debug nil)
 (defvar emacs-backbone--initialized nil)
 (defvar emacs-backbone--process nil)
@@ -100,6 +101,72 @@ If QUEUE is nil, inspect the current incomplete queue."
            (- count limit))))
     (emacs-backbone--log-diagnostic
      "[Backbone] Package installation timed out, but no active Elpaca queue was found.")))
+
+(defun emacs-backbone--package-timeout-deadline ()
+  "Return the timeout deadline as an Emacs time value, or nil if inactive."
+  (when (timerp emacs-backbone--package-timeout-timer)
+    (timer--time emacs-backbone--package-timeout-timer)))
+
+(defun emacs-backbone--seconds-until-timeout ()
+  "Return seconds remaining until the package timeout fires, or nil."
+  (when-let ((deadline (emacs-backbone--package-timeout-deadline)))
+    (max 0 (ceiling (float-time (time-subtract deadline (current-time)))))))
+
+(defun emacs-backbone--insert-status-line (label value)
+  "Insert a LABEL/VALUE pair into the current buffer."
+  (insert (format "%-18s %s\n" label value)))
+
+(defun emacs-backbone--insert-status-order (order)
+  "Insert a human-readable summary of Elpaca ORDER into the current buffer."
+  (insert (format "- %s\n" (emacs-backbone--format-elpaca-order order))))
+
+(defun emacs-backbone-status ()
+  "Display the current Backbone and Elpaca package-installation state."
+  (interactive)
+  (let* ((buffer (get-buffer-create emacs-backbone-status-buffer-name))
+         (queue (emacs-backbone--active-elpaca-queue))
+         (unfinished (emacs-backbone--unfinished-elpaca-orders queue))
+         (remaining (emacs-backbone--seconds-until-timeout)))
+    (with-current-buffer buffer
+      (setq buffer-read-only nil)
+      (erase-buffer)
+      (insert "Emacs Backbone Status\n")
+      (insert "====================\n\n")
+      (emacs-backbone--insert-status-line
+       "process"
+       (if emacs-backbone--process "running" "stopped"))
+      (emacs-backbone--insert-status-line
+       "initialized"
+       emacs-backbone--initialized)
+      (emacs-backbone--insert-status-line
+       "install active"
+       emacs-backbone--packages-installation-active)
+      (emacs-backbone--insert-status-line
+       "packages finished"
+       emacs-backbone--packages-finished-sent)
+      (emacs-backbone--insert-status-line
+       "timeout timer"
+       (if remaining
+           (format "%ss remaining" remaining)
+         "inactive"))
+      (if queue
+          (progn
+            (insert "\nActive Elpaca Queue\n")
+            (insert "------------------\n")
+            (emacs-backbone--insert-status-line "queue id" (elpaca-q<-id queue))
+            (emacs-backbone--insert-status-line "queue status" (elpaca-q<-status queue))
+            (emacs-backbone--insert-status-line "processed" (elpaca-q<-processed queue))
+            (emacs-backbone--insert-status-line "total" (length (elpaca-q<-elpacas queue)))
+            (emacs-backbone--insert-status-line "unfinished" (length unfinished))
+            (when unfinished
+              (insert "\nUnfinished Orders\n")
+              (insert "-----------------\n")
+              (dolist (order unfinished)
+                (emacs-backbone--insert-status-order order))))
+        (insert "\nNo active Elpaca queue.\n"))
+      (goto-char (point-min))
+      (special-mode))
+    (pop-to-buffer buffer)))
 
 (defun emacs-backbone--handle-notification (_conn method params)
   "Handle incoming JSON-RPC notifications from the Gleam process.
