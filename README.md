@@ -374,7 +374,6 @@ Enable verbose logging and debugging output:
 ### Interactive Commands
 
 - `M-x emacs-backbone-start` - Initialize Emacs Backbone (auto-invoked in init.el)
-- `M-x emacs-backbone-exit` - Gracefully shutdown Emacs Backbone
 - `M-x emacs-backbone-tangle-config` - Tangle `config.org` to `config.el`
 - `M-x emacs-backbone-reload-config` - Full reload: tangle + reinitialize
 
