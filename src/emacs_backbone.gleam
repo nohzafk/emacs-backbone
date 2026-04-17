@@ -103,7 +103,7 @@ fn handle_notification(
           case status.all_installed {
             True -> {
               io.println_error(
-                "All packages installed, waiting for queue completion",
+                "All package config callbacks reported, waiting for queue completion",
               )
             }
             False -> Nil

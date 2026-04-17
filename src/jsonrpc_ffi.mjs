@@ -142,8 +142,10 @@ function handleIncomingMessage(msg) {
 }
 
 /**
- * Track package installation progress for package_installed messages.
- * Called for both requests and notifications to log installation progress.
+ * Track package configuration progress for package_installed messages.
+ * The notification is emitted from each package's use-package :config block,
+ * so it means the package reached Backbone's completion callback, not that it
+ * is necessarily the current blocker for the remaining queue.
  */
 function trackPackageInstallation(msg) {
     if (msg.method !== "package_installed" || !msg.params) return;
@@ -153,7 +155,7 @@ function trackPackageInstallation(msg) {
 
     const packageTracker = updatePackageTracker(packageName);
     console.error(
-        `[${packageTracker.installed.length}/${packageTracker.total}] ${packageName}`,
+        `[${packageTracker.installed.length}/${packageTracker.total}] configured: ${packageName}`,
     );
 
     if (DEBUG) {
@@ -165,7 +167,7 @@ function trackPackageInstallation(msg) {
                       : "")
                 : "none";
         console.error(
-            `  ${packageTracker.pending.length} remaining: ${pendingList}`,
+            `  ${packageTracker.pending.length} config callbacks remaining: ${pendingList}`,
         );
     }
 }

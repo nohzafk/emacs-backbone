@@ -42,7 +42,7 @@ fn generate_packages_el_with_notifications(
     "(use-package " <> pkg.name <> straight_config <> "
   :config
   (emacs-backbone--reset-package-timeout)
-  ;; Send notification when package is installed
+  ;; Notify Backbone once the package reaches its :config callback.
   (emacs-backbone--call \"package_installed\" \"" <> pkg.name <> "\")" <> ")"
   }
 
