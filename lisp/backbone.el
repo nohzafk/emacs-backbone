@@ -168,6 +168,35 @@ If QUEUE is nil, inspect the current incomplete queue."
       (special-mode))
     (pop-to-buffer buffer)))
 
+(defun emacs-backbone-open-package-debug ()
+  "Open Backbone and Elpaca buffers useful for package-installation debugging."
+  (interactive)
+  (let ((status-buffer (save-window-excursion
+                         (emacs-backbone-status)
+                         (current-buffer)))
+        (stderr-buffer (get-buffer "*emacs-backbone-stderr*"))
+        log-buffer
+        manager-buffer)
+    (when (require 'elpaca-log nil t)
+      (setq log-buffer (save-window-excursion
+                         (elpaca-log)
+                         (current-buffer))))
+    (when (require 'elpaca-manager nil t)
+      (setq manager-buffer (save-window-excursion
+                             (elpaca-manager)
+                             (current-buffer))))
+    (delete-other-windows)
+    (pop-to-buffer status-buffer)
+    (when log-buffer
+      (display-buffer log-buffer
+                      '((display-buffer-reuse-window display-buffer-below-selected))))
+    (when manager-buffer
+      (display-buffer manager-buffer
+                      '((display-buffer-reuse-window display-buffer-below-selected))))
+    (when stderr-buffer
+      (display-buffer stderr-buffer
+                      '((display-buffer-reuse-window display-buffer-below-selected))))))
+
 (defun emacs-backbone--handle-notification (_conn method params)
   "Handle incoming JSON-RPC notifications from the Gleam process.
 METHOD is an interned symbol. PARAMS is a plist."
