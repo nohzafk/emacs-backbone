@@ -277,9 +277,18 @@ fn compose_packages_configuration(
 ) -> CommandResult(String) {
   use config_units <- bind(unit_macro.fetch_units(ctx))
 
-  let resolved = unit_utils.resolve_units(config_units, ctx.enable_debug)
+  let resolved =
+    case unit_utils.resolve_units(config_units, ctx.enable_debug) {
+      Ok(units) -> monadic.pure(units)
+      Error(err) -> monadic.fail_with(err)
+    }
 
-  use _ <- bind(unit_executor.execute_units(resolved, ctx, failed_packages))
+  use resolved_units <- bind(resolved)
+  use _ <- bind(unit_executor.execute_units(
+    resolved_units,
+    ctx,
+    failed_packages,
+  ))
 
   monadic.pure("")
 }
