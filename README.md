@@ -47,13 +47,13 @@ I happened to be learning Gleam when this idea crystallized, and it turned out t
 
 <summary>Why not just `use-package :after`?</summary>
 
-A common question is: *If `use-package` has the `:after` keyword, why do we need `config-unit!` and an external orchestrator?* 
+A common question is: *If `use-package` has the `:after` keyword, why do we need `config-unit!` and an external orchestrator?*
 
 The short answer is that `use-package` is an excellent **package loader**, but a very limited **state manager**. When your configuration scales, relying solely on `:after` for dependency management breaks down in a few critical ways.
 
 ### 1. The Cross-Package Integration Problem (N-to-N)
 
-The most glaring limitation of `use-package :after` is handling configurations that depend on *multiple* packages being loaded and configured first. 
+The most glaring limitation of `use-package :after` is handling configurations that depend on *multiple* packages being loaded and configured first.
 
 Take the `evil-org` package as an example. To configure it properly, you need both `evil` and `org` to be fully initialized. Where does the integration code go? With `use-package`, you are forced into awkward, tightly coupled nesting:
 
@@ -69,7 +69,7 @@ Take the `evil-org` package as an example. To configure it properly, you need bo
     (evil-org-set-key-theme)))
 ```
 
-This forces your integration logic to live inside the namespace of a single, arbitrary package. 
+This forces your integration logic to live inside the namespace of a single, arbitrary package.
 
 With `emacs-backbone` and `config-unit!`, you decouple the integration entirely. You create a distinct, independent unit that explicitly declares its upstream dependencies. It sits perfectly at the intersection of the two, keeping your base package configs clean:
 
@@ -82,9 +82,9 @@ With `emacs-backbone` and `config-unit!`, you decouple the integration entirely.
   (evil-org-set-key-theme))
 ```
 
-### 2. Reactivity vs. Determinism 
+### 2. Reactivity vs. Determinism
 
-Under the hood, `use-package :after` is just syntactic sugar for Emacs's built-in `with-eval-after-load`. This is a **reactive** system. It tells Emacs: *"Keep an eye out, and if package X ever happens to load, run this code."* 
+Under the hood, `use-package :after` is just syntactic sugar for Emacs's built-in `with-eval-after-load`. This is a **reactive** system. It tells Emacs: *"Keep an eye out, and if package X ever happens to load, run this code."*
 
 Because it is reactive, your configuration's execution order is highly vulnerable to the physical order of your `init.el` file, autoload triggers, or user actions. This is a common source of silent failures, race conditions, and infinite loading loops.
 
@@ -92,7 +92,7 @@ Because it is reactive, your configuration's execution order is highly vulnerabl
 
 ### 3. Granularity of State
 
-`use-package` operates strictly at the *package* level—it waits for a package to call `(provide 'some-package)`. 
+`use-package` operates strictly at the *package* level—it waits for a package to call `(provide 'some-package)`.
 
 However, in advanced Emacs setups, you often need to depend on a *logical state*, not just a package. For example, you might want your customized modeline to load only after your entire "UI Framework" (fonts, themes, and fringes) is fully configured. `config-unit!` allows you to depend on arbitrary blocks of configuration state to resolve, giving you orchestration granularity that `use-package` simply cannot provide.
 
@@ -106,6 +106,7 @@ Emacs Backbone separates the configuration framework from user configuration, si
 - **User Configuration** (`~/.config/backbone`): Your personal `config.org`, package declarations, and config units
 
 This separation allows you to:
+
 - Version control your user config independently from the core
 - Receive core updates without affecting your personal configuration
 - Share your configuration with others easily
@@ -141,6 +142,7 @@ The `package!` macro declares packages with explicit dependencies, eliminating l
 ```
 
 **Key features:**
+
 - **Dependency resolution**: Use `:deps` to declare package dependencies - the system guarantees they install first
 - **Repository flexibility**: Install from GitHub, GitLab, or any git host with `:repo` and `:host`
 - **Local packages**: Use `:local` for packages from local filesystem, with `:files` to include subdirectories
@@ -171,11 +173,22 @@ The `config-unit!` macro replaces `use-package`, `with-eval-after-load`, and sca
   :after (evil-config evil-collection-config which-key-config)
   :config
   (global-set-key (kbd "C-c g") 'magit-status))
+
+;; Runtime prerequisites: require env vars and executables before running
+(config-unit! llm-tools
+  :requires (gptel)
+  :env (OPENAI_API_KEY ANTHROPIC_API_KEY)
+  :executable (rg git)
+  :config
+  (message "LLM tooling is ready"))
 ```
 
 **Key features:**
+
 - **`:requires`** - Feature availability check (like `featurep`)
-- **`:after`** - Execution ordering (unlike `eval-after-load`, this is **guaranteed**)
+- **`:after`** - Execution ordering between `config-unit!` names (not `package!` names); unlike `eval-after-load`, this is **guaranteed**
+- **`:env`** - Require environment variables to be set before the unit runs
+- **`:executable`** - Require external binaries to exist on `PATH` before the unit runs
 - **`:config`** - Configuration body that runs in deterministic order
 - **Topological sorting** - Complex dependency graphs are automatically resolved
 - **Circular dependency detection** - Fails fast if your configuration has cycles
@@ -194,7 +207,7 @@ This replaces the traditional Emacs configuration chaos with a **predictable, re
 
 ### Two-Directory Structure
 
-```
+```text
 ~/.config/emacs/                           # Core system (this repository)
 ├── src/                                   # Gleam backend
 │   ├── emacs_backbone.gleam              # Entry point
@@ -224,7 +237,7 @@ This replaces the traditional Emacs configuration chaos with a **predictable, re
 - **Dependency Resolution**: Topological sorting ensures packages and config units load in correct order
 - **Literate Configuration**: Write your config in Org mode (`config.org`) with tangling support
 - **Declarative Packages**: Use `package!` macro for reproducible package management (Elpaca integration)
-- **Config Units**: Use `config-unit!` macro for dependency-ordered configuration blocks
+- **Config Units**: Use `config-unit!` for dependency-ordered configuration blocks with feature, unit, env, and executable prerequisites
 - **Async Communication**: Bidirectional JSON-RPC over stdio between Gleam and Emacs
 
 ### Elpaca Compatibility
@@ -235,7 +248,8 @@ Emacs Backbone currently bootstraps against **Elpaca installer version `0.12`** 
 This integration currently depends on some Elpaca implementation details, not
 just its public user-facing configuration surface. In particular, Backbone has
 workarounds for **split packages in a shared monorepo checkout**, such as
-`magit-section` living inside the shared `magit` repository checkout.
+`magit-section` living inside the shared `magit` repository checkout, and
+packages like `embark-consult` living inside the shared `embark` checkout.
 
 That means Elpaca upgrades should be treated as compatibility work: if Elpaca's
 shared-source, clone-skip, or dependency-detection internals change, Backbone's
@@ -247,21 +261,7 @@ integration may need to be updated as well.
 
 - **Emacs** 29+ (with native compilation support recommended)
 - **Gleam** (for the backend orchestrator)
-- **Bun** (JavaScript runtime for JSON-RPC stdio FFI)
-
-#### Installing Bun
-
-macOS and Linux:
-```bash
-curl -fsSL https://bun.sh/install | bash
-```
-
-Windows:
-```powershell
-powershell -c "irm bun.sh/install.ps1 | iex"
-```
-
-For more installation options, see [Bun installation docs](https://bun.sh/docs/installation).
+- **Node.js** (JavaScript runtime for the compiled Gleam backend)
 
 ### Core Installation
 
@@ -312,6 +312,14 @@ For more installation options, see [Bun installation docs](https://bun.sh/docs/i
      :after (evil-setup)
      :config
      (which-key-mode 1))
+
+   (config-unit! ai-setup
+     :requires (gptel)
+     :after (which-key-setup)
+     :env OPENAI_API_KEY
+     :executable (git rg)
+     :config
+     (message "AI tooling enabled"))
    #+end_src
    ```
 
@@ -337,12 +345,12 @@ For a complete, real-world example of an Emacs Backbone configuration, see:
 
 **[nohzafk's literate-darwin config](https://github.com/nohzafk/literate-darwin/blob/main/modules/emacs/backbone/config.org)**
 
-
 ## Configuration
 
 ### Customization Variables
 
 #### `emacs-backbone-user-directory`
+
 **Default:** `~/.config/backbone`
 
 Directory containing your user configuration. Customize if you want to use a different location:
@@ -352,6 +360,7 @@ Directory containing your user configuration. Customize if you want to use a dif
 ```
 
 #### `emacs-backbone-gleam-executable`
+
 **Default:** Auto-detected (`/opt/homebrew/bin/gleam` or from PATH)
 
 Path to the Gleam executable:
@@ -361,6 +370,7 @@ Path to the Gleam executable:
 ```
 
 #### `emacs-backbone-enable-debug`
+
 **Default:** `nil`
 
 Enable verbose logging and debugging output:
@@ -392,7 +402,6 @@ The Gleam backend is managed over stdio, so it exits with Emacs. There is no sep
 gleam build              # Build the Gleam backend
 gleam run                # Run (requires backbone_port and emacs_port args)
 gleam test               # Run tests
-bun install              # Install dependencies
 ```
 
 ### Project Structure
@@ -413,6 +422,7 @@ gleam test               # Run Gleam backend tests
 ### Config not found
 
 If you see "Emacs Backbone user config not found", ensure:
+
 1. `~/.config/backbone/config.el` exists
 2. You've tangled your `config.org` file
 3. The `emacs-backbone-user-directory` variable points to the correct location
@@ -420,10 +430,11 @@ If you see "Emacs Backbone user config not found", ensure:
 ### Gleam process won't start
 
 Check:
+
 1. Gleam is installed: `which gleam`
-2. Bun is installed: `which bun`
+2. Node is installed: `which node`
 3. The `emacs-backbone-gleam-executable` variable is correct
-4. You've run `bun install` in the core directory
+4. You rebuilt the backend after changing Gleam source: `gleam build`
 
 ### Package installation fails
 
