@@ -13,8 +13,12 @@
 (defvar emacs-backbone--packages-installation-active nil)
 (defvar emacs-backbone--package-timeout-timer nil)
 
-(defcustom emacs-backbone-package-timeout-seconds 300
-  "No-progress timeout (seconds) before proceeding with configuration."
+(defcustom emacs-backbone-package-timeout-seconds 30
+  "No-progress timeout (seconds) before proceeding with configuration.
+This is a global idle timer: it is reset whenever a package reports
+`package_installed'. When it fires, any packages that never reported
+success are treated as failed. Bump this on cold installs where the
+first git clone/byte-compile may take longer than the default."
   :type 'integer
   :group 'emacs-backbone)
 
