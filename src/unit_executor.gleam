@@ -7,7 +7,9 @@ import gleam/set.{type Set}
 import gleam/string
 import jsonrpc
 import monadic.{type CommandResult}
-import unit.{type ConfigUnit, type Dependency, EnvDep, FeatureDep, UnitDep}
+import unit.{
+  type ConfigUnit, type Dependency, EnvDep, ExecutableDep, FeatureDep, UnitDep,
+}
 import unit_state.{type UnitState}
 
 pub fn execute_units(
@@ -228,6 +230,7 @@ fn verify_runtime_deps_loop(
       let check_result = case dep {
         EnvDep(env_var) -> verify_unit_env_dep(env_var, ctx)
         FeatureDep(feature) -> verify_unit_feature_dep(feature, ctx)
+        ExecutableDep(binary) -> verify_unit_executable_dep(binary, ctx)
         _ -> monadic.pure("")
       }
 
@@ -249,6 +252,27 @@ fn verify_unit_env_dep(
     _ -> {
       case ctx.enable_debug {
         True -> io.println_error("EnvDep pass: " <> env_var)
+        _ -> Nil
+      }
+      monadic.pure("")
+    }
+  }
+}
+
+// Verify executable dependency by calling `executable-find' in Emacs.
+fn verify_unit_executable_dep(
+  binary: String,
+  ctx: EmacsContext,
+) -> CommandResult(String) {
+  use value <- monadic.bind(ctx.eval(
+    "executable-find",
+    emacs.StringParam([binary]),
+  ))
+  case value {
+    "" | "null" -> monadic.fail_with("ExecutableDep failure: " <> binary)
+    _ -> {
+      case ctx.enable_debug {
+        True -> io.println_error("ExecutableDep pass: " <> binary)
         _ -> Nil
       }
       monadic.pure("")

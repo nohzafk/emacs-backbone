@@ -34,7 +34,18 @@ Optional properties:
                 loaded before this one. Creates a dependency graph for initialization.
                 Example: :after (helm ivy) or :after org
 
-The macro registers the unit with the `emacs-backbone-units` list for
+  :env          Symbol, string, or list of them naming environment variables
+                that must be set (non-empty) for this unit to run. If any is
+                missing the unit fails and downstream units (via :after) are
+                skipped.
+                Example: :env API_KEY or :env (EDITOR LANG)
+
+  :executable   Symbol, string, or list of them naming executables that must
+                be found on PATH (via `executable-find'). If any is missing
+                the unit fails and downstream units are skipped.
+                Example: :executable git or :executable (git rg)
+
+The macro registers the unit with the `emacs-backbone-units' list for
 processing by the backbone system.
 
 Examples:
@@ -52,8 +63,15 @@ Examples:
       (setq org-directory \"~/org\")
       (setq org-agenda-files '(\"~/org/agenda.org\")))
 
-Units are executed only when their required features are available, and in
-dependency order based on the :after specifications."
+    (config-unit! magit-config
+      :requires magit
+      :executable git
+      :config
+      (global-set-key (kbd \"C-x g\") 'magit-status))
+
+Units are executed only when their required features are available, their env
+vars are set, their executables are on PATH, and in dependency order based on
+the :after specifications."
   (declare (indent defun))
   
   (let* ((config-index (cl-position :config args))
@@ -67,29 +85,52 @@ dependency order based on the :after specifications."
     (let* ((plist-pairs (seq-subseq args 0 config-index))
            ;; Extract forms after :config
            (body (seq-subseq args (1+ config-index)))
-           ;; Get requires and afters
+           ;; Get the various dependency specifications
            (requires-expr (plist-get plist-pairs :requires))
            (afters-expr (plist-get plist-pairs :after))
+           (env-expr (plist-get plist-pairs :env))
+           (executable-expr (plist-get plist-pairs :executable))
            ;; Convert body forms to a single string
            (body-string (when body
                           (format "%S" `(progn ,@body t)))))
 
-      ;; Ensure we have lists for both requires and afters
+      ;; Normalize single symbols to lists
       (when (and requires-expr (symbolp requires-expr))
         (setq requires-expr (list requires-expr)))
 
       (when (and afters-expr (symbolp afters-expr))
         (setq afters-expr (list afters-expr)))
 
+      (when (and env-expr (or (symbolp env-expr) (stringp env-expr)))
+        (setq env-expr (list env-expr)))
+
+      (when (and executable-expr
+                 (or (symbolp executable-expr) (stringp executable-expr)))
+        (setq executable-expr (list executable-expr)))
+
       `(let ((unit (list :name ,unit-name)))
          ;; Process requires
          (setq unit (plist-put unit :requires
-                              (mapcar #'symbol-name ',requires-expr)))
+                              (mapcar (lambda (x) (if (stringp x) x (symbol-name x)))
+                                      ',requires-expr)))
 
          ;; Process after dependencies - only add if present
          ,(when afters-expr
             `(setq unit (plist-put unit :after
-                                  (mapcar #'symbol-name ',afters-expr))))
+                                  (mapcar (lambda (x) (if (stringp x) x (symbol-name x)))
+                                          ',afters-expr))))
+
+         ;; Process env dependencies - only add if present
+         ,(when env-expr
+            `(setq unit (plist-put unit :env
+                                  (mapcar (lambda (x) (if (stringp x) x (symbol-name x)))
+                                          ',env-expr))))
+
+         ;; Process executable dependencies - only add if present
+         ,(when executable-expr
+            `(setq unit (plist-put unit :executable
+                                  (mapcar (lambda (x) (if (stringp x) x (symbol-name x)))
+                                          ',executable-expr))))
 
          ;; Store the body code as a string
          (setq unit (plist-put unit :body ,body-string))
