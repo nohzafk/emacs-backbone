@@ -63,6 +63,25 @@ not match the package name."
         (when main-file
           (list :main main-file))))))
 
+(defun emacs-backbone--elpaca-shared-source-dir (orig-fn id dir)
+  "Return the nearest prior shared-source owner for ID at DIR.
+
+Elpaca's queued list can contain entries from later queues before entries from
+the current queue. For split packages sharing a source checkout, that can make
+`elpaca--shared-source-dir' incorrectly choose a future queue entry as the
+source owner. We only want owners from the same or an earlier queue."
+  (let* ((queued (elpaca--queued))
+         (index (cl-position id queued :key #'car :test #'eq))
+         (current (and index (cdr (nth index queued)))))
+    (if (not current)
+        (funcall orig-fn id dir)
+      (cl-loop for i from (1- index) downto 0
+               for e = (cdr (nth i queued))
+               when (and e
+                         (equal dir (elpaca<-source-dir e))
+                         (<= (elpaca<-queue-id e) (elpaca<-queue-id current)))
+               return e))))
+
 (defun emacs-backbone--elpaca-wait-for-shared-git-source (orig-fn e)
   "Block E on an earlier queued git package sharing the same source checkout.
 
@@ -76,7 +95,9 @@ Example: `magit` and the split package `magit-section` both use the shared
 `lisp/magit-section.el` to exist before dependency detection can succeed."
   (if (not (eq (plist-get (elpaca<-recipe e) :type) 'git))
       (funcall orig-fn e)
-    (if-let* ((shared (elpaca--shared-source-dir (elpaca<-id e) (elpaca<-source-dir e)))
+    (if-let* ((shared (elpaca--shared-source-dir
+                       (elpaca<-id e)
+                       (elpaca<-source-dir e)))
               ((not (or (memq (elpaca<-id shared) (elpaca<-blockers e))
                         (elpaca<-builtp shared)))))
         (progn
@@ -113,6 +134,7 @@ Example: `magit` and the split package `magit-section` both use the shared
       (funcall orig-fn e))))
 
 (add-hook 'elpaca-recipe-functions #'emacs-backbone--elpaca-infer-main-file)
+(advice-add 'elpaca--shared-source-dir :around #'emacs-backbone--elpaca-shared-source-dir)
 (advice-add 'elpaca-source :around #'emacs-backbone--elpaca-wait-for-shared-git-source)
 (advice-add 'elpaca-git--clone :around #'emacs-backbone--elpaca-wait-on-shared-main-before-clone)
 
