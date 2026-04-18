@@ -142,10 +142,10 @@ function handleIncomingMessage(msg) {
 }
 
 /**
- * Track package configuration progress for package_installed messages.
- * The notification is emitted from each package's use-package :config block,
- * so it means the package reached Backbone's completion callback, not that it
- * is necessarily the current blocker for the remaining queue.
+ * Track package installation/activation progress for package_installed messages.
+ * The notification is emitted once Elpaca finishes a package's queue entry, so
+ * it means Backbone saw that package complete, not that it was necessarily the
+ * current blocker for the remaining queue.
  */
 function trackPackageInstallation(msg) {
     if (msg.method !== "package_installed" || !msg.params) return;
@@ -155,7 +155,7 @@ function trackPackageInstallation(msg) {
 
     const packageTracker = updatePackageTracker(packageName);
     console.error(
-        `[${packageTracker.installed.length}/${packageTracker.total}] configured: ${packageName}`,
+        `[${packageTracker.installed.length}/${packageTracker.total}] completed: ${packageName}`,
     );
 
     if (DEBUG) {
@@ -167,7 +167,7 @@ function trackPackageInstallation(msg) {
                       : "")
                 : "none";
         console.error(
-            `  ${packageTracker.pending.length} config callbacks remaining: ${pendingList}`,
+            `  ${packageTracker.pending.length} packages still pending: ${pendingList}`,
         );
     }
 }

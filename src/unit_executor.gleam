@@ -285,9 +285,9 @@ fn verify_unit_feature_dep(
   feature: String,
   ctx: EmacsContext,
 ) -> CommandResult(String) {
-  use value <- monadic.bind(ctx.eval(
-    "featurep",
-    emacs.RawParam(["'" <> feature]),
+  use value <- monadic.bind(jsonrpc.fetch_var(
+    "(if (require '" <> feature <> " nil t) t :false)",
+    5,
   ))
   case value {
     "true" -> {

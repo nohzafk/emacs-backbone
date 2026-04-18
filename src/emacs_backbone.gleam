@@ -104,7 +104,7 @@ fn handle_notification(
           case status.all_installed {
             True -> {
               io.println_error(
-                "All package config callbacks reported, waiting for queue completion",
+                "All packages reported completion, waiting for queue completion",
               )
             }
             False -> Nil
@@ -144,11 +144,31 @@ fn handle_notification(
       let failed_packages = package_tracker.get_failed_packages()
       case failed_packages {
         [] -> Nil
-        names ->
+        names -> {
+          let pending_count =
+            status.total - list.length(status.installed)
+          let reason_text = case reason {
+            Some(value) -> " (reason: " <> value <> ")"
+            None -> ""
+          }
           io.println_error(
-            "[ERROR] Packages failed to install (including transitive dependents): "
+            "[WARN] Package processing ended before all packages reported Backbone completion"
+            <> reason_text
+            <> "."
+          )
+          io.println_error(
+            "[WARN] This does not necessarily mean every listed package failed to install;"
+            <> " it means Backbone never saw their `package_installed` callback."
+          )
+          io.println_error(
+            "[WARN] Pending packages: "
+            <> int.to_string(pending_count)
+            <> "/"
+            <> int.to_string(status.total)
+            <> ". Pending packages plus transitive dependents: "
             <> string.join(names, ", "),
           )
+        }
       }
       after_package_installation_handler(
         EmacsContext(..context, installed_packages_count: status.total),

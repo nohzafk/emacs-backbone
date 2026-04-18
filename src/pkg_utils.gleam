@@ -32,18 +32,15 @@ fn generate_packages_el_with_notifications(
       Some(recipe) -> recipe_to_elisp(recipe, pkg)
     }
 
-    let straight_config = case recipe_str |> string.trim {
-      "" -> "\n  :ensure t"
-      parts -> "\n  :ensure (" <> parts <> ")"
+    let order = case recipe_str |> string.trim {
+      "" -> pkg.name
+      parts -> "(" <> pkg.name <> "\n  " <> parts <> ")"
     }
 
-    // TODO: Add support for other Pkg fields like :disable, :pin, etc. later
-
-    "(use-package " <> pkg.name <> straight_config <> "
-  :config
+    "(elpaca " <> order <> "
   (emacs-backbone--reset-package-timeout)
-  ;; Notify Backbone once the package reaches its :config callback.
-  (emacs-backbone--call \"package_installed\" \"" <> pkg.name <> "\")" <> ")"
+  ;; Notify Backbone once Elpaca finishes this package's queue entry.
+  (emacs-backbone--call \"package_installed\" \"" <> pkg.name <> "\"))"
   }
 
   let packages_definition =
