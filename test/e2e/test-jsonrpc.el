@@ -20,6 +20,12 @@
 (defvar test-connection nil "The JSON-RPC connection.")
 (defvar test-fetch-var-called nil "Whether fetch-var was called.")
 (defvar test-fetch-var-results nil "Results from fetch-var calls.")
+(defvar test-backbone-gleam-executable
+  (or (and (file-executable-p "/opt/homebrew/bin/gleam")
+           "/opt/homebrew/bin/gleam")
+      (executable-find "gleam")
+      "gleam")
+  "Path to the Gleam executable used by the E2E test.")
 
 ;; Simplified backbone connection class
 (defclass test-backbone-connection (jsonrpc-process-connection) ()
@@ -57,7 +63,7 @@
                 :name "test-backbone"
                 :process (make-process
                           :name "test-backbone"
-                          :command (list "gleam" "run")
+                          :command (list test-backbone-gleam-executable "run")
                           :connection-type 'pipe
                           :stderr stderr-buffer
                           :noquery t)

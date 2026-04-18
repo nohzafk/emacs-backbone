@@ -177,26 +177,23 @@ function trackPackageInstallation(msg) {
 export function setupStdioServer(handler) {
     messageHandler = handler;
 
-    // Handle stdin close (Emacs killed the process)
-    const stdin = Bun.stdin.stream();
-    const reader = stdin.getReader();
+    // Use Node-style stdio streams so the transport runs under either Node or Bun.
+    process.stdin.on("data", (chunk) => {
+        // Pass raw bytes/buffer to parseMessages - it handles byte-accurate Content-Length parsing
+        parseMessages(chunk);
+    });
 
-    (async () => {
-        try {
-            while (true) {
-                const { done, value } = await reader.read();
-                if (done) {
-                    console.error("stdin closed, shutting down");
-                    process.exit(0);
-                }
-                // Pass raw bytes/buffer to parseMessages - it handles byte-accurate Content-Length parsing
-                parseMessages(value);
-            }
-        } catch (e) {
-            console.error("stdin read error:", e.message);
-            process.exit(1);
-        }
-    })();
+    process.stdin.on("end", () => {
+        console.error("stdin closed, shutting down");
+        process.exit(0);
+    });
+
+    process.stdin.on("error", (e) => {
+        console.error("stdin read error:", e.message);
+        process.exit(1);
+    });
+
+    process.stdin.resume();
 }
 
 export function sendNotification(method, params) {
