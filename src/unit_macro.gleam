@@ -6,7 +6,7 @@ import gleam/list
 import gleam/option.{None, Some}
 import gleam/string
 import monadic.{type CommandResult, bind, fail_with, pure}
-import unit.{type ConfigUnit, ConfigUnit, FeatureDep, UnitDep}
+import unit.{type ConfigUnit, ConfigUnit, EnvDep, ExecutableDep, FeatureDep, UnitDep}
 
 /// Create a decoder for ConfigUnit type
 pub fn unit_decoder() -> decode.Decoder(ConfigUnit) {
@@ -21,6 +21,16 @@ pub fn unit_decoder() -> decode.Decoder(ConfigUnit) {
     None,
     decode.optional(decode.list(decode.string)),
   )
+  use env <- decode.optional_field(
+    "env",
+    None,
+    decode.optional(decode.list(decode.string)),
+  )
+  use executable <- decode.optional_field(
+    "executable",
+    None,
+    decode.optional(decode.list(decode.string)),
+  )
   use code <- decode.optional_field(
     "body",
     None,
@@ -29,8 +39,13 @@ pub fn unit_decoder() -> decode.Decoder(ConfigUnit) {
 
   let feature_deps = features |> option.unwrap([]) |> list.map(FeatureDep)
   let unit_deps = after |> option.unwrap([]) |> list.map(UnitDep)
+  let env_deps = env |> option.unwrap([]) |> list.map(EnvDep)
+  let executable_deps =
+    executable |> option.unwrap([]) |> list.map(ExecutableDep)
 
-  let deps = case [feature_deps, unit_deps] |> list.flatten {
+  let deps = case
+    [feature_deps, unit_deps, env_deps, executable_deps] |> list.flatten
+  {
     [] -> None
     value -> Some(value)
   }

@@ -13,8 +13,12 @@
 (defvar emacs-backbone--packages-installation-active nil)
 (defvar emacs-backbone--package-timeout-timer nil)
 
-(defcustom emacs-backbone-package-timeout-seconds 300
-  "No-progress timeout (seconds) before proceeding with configuration."
+(defcustom emacs-backbone-package-timeout-seconds 30
+  "No-progress timeout (seconds) before proceeding with configuration.
+This is a global idle timer: it is reset whenever a package reports
+`package_installed'. When it fires, any packages that never reported
+success are treated as failed. Bump this on cold installs where the
+first git clone/byte-compile may take longer than the default."
   :type 'integer
   :group 'emacs-backbone)
 
@@ -50,6 +54,11 @@ or searches PATH for 'gleam' executable."
 (defclass emacs-backbone-connection (jsonrpc-process-connection) ()
   :documentation "JSON-RPC connection to the Backbone Gleam process.")
 
+(defun emacs-backbone-running-p ()
+  "Return non-nil when the Backbone JSON-RPC process is alive."
+  (not (null (and emacs-backbone--process
+                  (jsonrpc-running-p emacs-backbone--process)))))
+
 (defun emacs-backbone--log-diagnostic (fmt &rest args)
   "Write a formatted diagnostic message to `*Messages*' and Backbone stderr."
   (let ((line (apply #'format fmt args)))
@@ -58,6 +67,47 @@ or searches PATH for 'gleam' executable."
       (with-current-buffer buffer
         (goto-char (point-max))
         (insert line "\n")))))
+
+(defun emacs-backbone--stderr-tail (&optional max-lines)
+  "Return the last MAX-LINES non-empty lines from Backbone stderr."
+  (when-let ((buffer (get-buffer "*emacs-backbone-stderr*")))
+    (with-current-buffer buffer
+      (let* ((lines (split-string (buffer-string) "\n" t))
+             (max-lines (or max-lines 12))
+             (start (max 0 (- (length lines) max-lines))))
+        (when lines
+          (mapconcat #'identity (nthcdr start lines) "\n"))))))
+
+(defun emacs-backbone--startup-hint (err stderr-tail)
+  "Return a targeted startup hint based on ERR and STDERR-TAIL."
+  (cond
+   ((string-match-p "The program `bun` was not found" (or stderr-tail ""))
+    "[Backbone] Hint: install Bun or switch `[javascript].runtime` in gleam.toml to an available runtime.")
+   ((string-match-p "ReferenceError: Bun is not defined" (or stderr-tail ""))
+    "[Backbone] Hint: the backend is running under Node, but the transport still uses Bun-only APIs.")
+   ((string-match-p "No such file or directory" (format "%s" err))
+    "[Backbone] Hint: set `emacs-backbone-gleam-executable` to a valid Gleam binary.")
+   ((string-match-p "Program not found" (or stderr-tail ""))
+    "[Backbone] Hint: install the JavaScript runtime required by gleam.toml or change it to one that exists locally.")))
+
+(defun emacs-backbone--report-startup-failure (err command)
+  "Log a detailed startup diagnostic for ERR from COMMAND."
+  (let ((stderr-tail (emacs-backbone--stderr-tail))
+        (hint nil))
+    (setq hint (emacs-backbone--startup-hint err stderr-tail))
+    (emacs-backbone--log-diagnostic
+     "[Backbone] Startup failed: %s" err)
+    (emacs-backbone--log-diagnostic
+     "[Backbone] Command: %s"
+     (mapconcat #'shell-quote-argument command " "))
+    (when stderr-tail
+      (emacs-backbone--log-diagnostic
+       "[Backbone] stderr tail:\n%s"
+       stderr-tail))
+    (when hint
+      (emacs-backbone--log-diagnostic "%s" hint))
+    (emacs-backbone--log-diagnostic
+     "[Backbone] Inspect *emacs-backbone-stderr* for full backend output.")))
 
 (defun emacs-backbone--active-elpaca-queue ()
   "Return the current incomplete Elpaca queue, or nil when unavailable."
@@ -147,7 +197,7 @@ If QUEUE is nil, inspect the current incomplete queue."
       (insert "====================\n\n")
       (emacs-backbone--insert-status-line
        "process"
-       (if emacs-backbone--process "running" "stopped"))
+       (if (emacs-backbone-running-p) "running" "stopped"))
       (emacs-backbone--insert-status-line
        "initialized"
        emacs-backbone--initialized)
@@ -232,32 +282,42 @@ Return value is sent back as the JSON-RPC response."
 (defun emacs-backbone-start ()
   "Start the Backbone process and establish JSON-RPC connection."
   (interactive)
-  (if emacs-backbone--process
+  (if (emacs-backbone-running-p)
       (message "[Backbone] Process already running.")
     (let* ((default-directory user-emacs-directory)
            (process-environment (cons "NO_COLOR=true" process-environment))
            (stderr-buffer (get-buffer-create "*emacs-backbone-stderr*"))
-           (conn (make-instance
+           (command (list emacs-backbone-gleam-executable "run")))
+      (setq emacs-backbone--initialized nil)
+      (setq emacs-backbone--process nil)
+      (condition-case err
+          (let ((conn
+                 (make-instance
                   'emacs-backbone-connection
                   :name "emacs-backbone"
                   :events-buffer-config `(:size ,(if emacs-backbone-enable-debug nil 0))
                   :process (make-process
                             :name "emacs-backbone"
-                            :command (list emacs-backbone-gleam-executable "run")
+                            :command command
                             :connection-type 'pipe
                             :stderr stderr-buffer
                             :noquery t)
                   :notification-dispatcher #'emacs-backbone--handle-notification
                   :request-dispatcher #'emacs-backbone--handle-request)))
-
-      (setq emacs-backbone--process conn)
-
-      ;; Send init request to Gleam
-      (jsonrpc-async-request conn "init" nil
-        :success-fn (lambda (_result)
-                      (setq emacs-backbone--initialized t))
-        :error-fn (lambda (err)
-                    (message "[Backbone] Init failed: %s" err))))))
+            (setq emacs-backbone--process conn)
+            ;; Send init request to Gleam.
+            (jsonrpc-async-request
+             conn "init" nil
+             :success-fn (lambda (_result)
+                           (setq emacs-backbone--initialized t))
+             :error-fn (lambda (init-err)
+                         (unless (emacs-backbone-running-p)
+                           (setq emacs-backbone--process nil))
+                         (emacs-backbone--report-startup-failure
+                          init-err command))))
+        (file-missing
+         (setq emacs-backbone--process nil)
+         (emacs-backbone--report-startup-failure err command))))))
 
 (defun emacs-backbone--begin-package-installation ()
   "Reset package completion state and start the no-progress timer."

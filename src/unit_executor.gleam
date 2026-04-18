@@ -3,16 +3,19 @@ import gleam/io
 import gleam/javascript/promise
 import gleam/list
 import gleam/option.{None, Some}
-import gleam/set
+import gleam/set.{type Set}
 import gleam/string
 import jsonrpc
 import monadic.{type CommandResult}
-import unit.{type ConfigUnit, type Dependency, EnvDep, FeatureDep, UnitDep}
+import unit.{
+  type ConfigUnit, type Dependency, EnvDep, ExecutableDep, FeatureDep, UnitDep,
+}
 import unit_state.{type UnitState}
 
 pub fn execute_units(
   resolved_units: List(List(ConfigUnit)),
   ctx: EmacsContext,
+  failed_packages: Set(String),
 ) -> CommandResult(String) {
   let initial_state = unit_state.new()
 
@@ -21,6 +24,7 @@ pub fn execute_units(
     resolved_units,
     ctx,
     initial_state,
+    failed_packages,
   ))
 
   // Format a final status message based on failed units
@@ -43,14 +47,20 @@ fn process_all_groups(
   groups: List(List(ConfigUnit)),
   ctx: EmacsContext,
   state: UnitState,
+  failed_packages: Set(String),
 ) -> CommandResult(UnitState) {
   case groups {
     [] -> monadic.pure(state)
     [group, ..rest] -> {
       // Process current group
-      use new_state <- monadic.bind(process_group(group, ctx, state))
+      use new_state <- monadic.bind(process_group(
+        group,
+        ctx,
+        state,
+        failed_packages,
+      ))
       // Continue with remaining groups
-      process_all_groups(rest, ctx, new_state)
+      process_all_groups(rest, ctx, new_state, failed_packages)
     }
   }
 }
@@ -60,13 +70,14 @@ fn process_group(
   units: List(ConfigUnit),
   ctx: EmacsContext,
   state: UnitState,
+  failed_packages: Set(String),
 ) -> CommandResult(UnitState) {
   case units {
     // No more units to process
     [] -> monadic.pure(state)
     [unit, ..rest] -> {
       // Check for failed dependencies first
-      let failed_deps = get_failed_deps(unit, state)
+      let failed_deps = get_failed_deps(unit, state, failed_packages)
 
       case failed_deps {
         [] -> {
@@ -96,7 +107,7 @@ fn process_group(
           }
 
           // Continue with the rest of the units
-          process_group(rest, ctx, new_state)
+          process_group(rest, ctx, new_state, failed_packages)
         }
         deps -> {
           // Unit has failed dependencies, skip it
@@ -113,7 +124,7 @@ fn process_group(
           let new_state = unit_state.mark_failed(state, unit.name)
 
           // Continue with remaining units
-          process_group(rest, ctx, new_state)
+          process_group(rest, ctx, new_state, failed_packages)
         }
       }
     }
@@ -161,8 +172,14 @@ fn execute_unit_with_fallback(
   }
 }
 
-// Get a list of dependencies that have failed
-fn get_failed_deps(unit: ConfigUnit, state: UnitState) -> List(String) {
+// Get a list of dependencies that have failed. A FeatureDep is treated as
+// failed when its feature name matches a package known to have failed to
+// install (either directly or transitively via :deps).
+fn get_failed_deps(
+  unit: ConfigUnit,
+  state: UnitState,
+  failed_packages: Set(String),
+) -> List(String) {
   unit.deps
   |> option.unwrap([])
   |> list.filter_map(fn(dep) {
@@ -170,6 +187,12 @@ fn get_failed_deps(unit: ConfigUnit, state: UnitState) -> List(String) {
       UnitDep(unit_config_name) -> {
         case unit_state.is_failed(state, unit_config_name) {
           True -> Ok(unit_config_name)
+          False -> Error(Nil)
+        }
+      }
+      FeatureDep(feature) -> {
+        case set.contains(failed_packages, feature) {
+          True -> Ok(feature)
           False -> Error(Nil)
         }
       }
@@ -207,6 +230,7 @@ fn verify_runtime_deps_loop(
       let check_result = case dep {
         EnvDep(env_var) -> verify_unit_env_dep(env_var, ctx)
         FeatureDep(feature) -> verify_unit_feature_dep(feature, ctx)
+        ExecutableDep(binary) -> verify_unit_executable_dep(binary, ctx)
         _ -> monadic.pure("")
       }
 
@@ -235,14 +259,35 @@ fn verify_unit_env_dep(
   }
 }
 
+// Verify executable dependency by calling `executable-find' in Emacs.
+fn verify_unit_executable_dep(
+  binary: String,
+  ctx: EmacsContext,
+) -> CommandResult(String) {
+  use value <- monadic.bind(ctx.eval(
+    "executable-find",
+    emacs.StringParam([binary]),
+  ))
+  case value {
+    "" | "null" -> monadic.fail_with("ExecutableDep failure: " <> binary)
+    _ -> {
+      case ctx.enable_debug {
+        True -> io.println_error("ExecutableDep pass: " <> binary)
+        _ -> Nil
+      }
+      monadic.pure("")
+    }
+  }
+}
+
 // Verify feature dependency
 fn verify_unit_feature_dep(
   feature: String,
   ctx: EmacsContext,
 ) -> CommandResult(String) {
-  use value <- monadic.bind(ctx.eval(
-    "featurep",
-    emacs.RawParam(["'" <> feature]),
+  use value <- monadic.bind(jsonrpc.fetch_var(
+    "(if (require '" <> feature <> " nil t) t :false)",
+    5,
   ))
   case value {
     "true" -> {

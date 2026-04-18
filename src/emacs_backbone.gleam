@@ -7,6 +7,7 @@ import gleam/io
 import gleam/json
 import gleam/list
 import gleam/option.{None, Some}
+import gleam/set
 import gleam/string
 import gleam/time/duration
 import gleam/time/timestamp
@@ -103,7 +104,7 @@ fn handle_notification(
           case status.all_installed {
             True -> {
               io.println_error(
-                "All package config callbacks reported, waiting for queue completion",
+                "All packages reported completion, waiting for queue completion",
               )
             }
             False -> Nil
@@ -140,8 +141,38 @@ fn handle_notification(
       }
 
       let status = package_tracker.get_package_tracker()
+      let failed_packages = package_tracker.get_failed_packages()
+      case failed_packages {
+        [] -> Nil
+        names -> {
+          let pending_count =
+            status.total - list.length(status.installed)
+          let reason_text = case reason {
+            Some(value) -> " (reason: " <> value <> ")"
+            None -> ""
+          }
+          io.println_error(
+            "[WARN] Package processing ended before all packages reported Backbone completion"
+            <> reason_text
+            <> "."
+          )
+          io.println_error(
+            "[WARN] This does not necessarily mean every listed package failed to install;"
+            <> " it means Backbone never saw their `package_installed` callback."
+          )
+          io.println_error(
+            "[WARN] Pending packages: "
+            <> int.to_string(pending_count)
+            <> "/"
+            <> int.to_string(status.total)
+            <> ". Pending packages plus transitive dependents: "
+            <> string.join(names, ", "),
+          )
+        }
+      }
       after_package_installation_handler(
         EmacsContext(..context, installed_packages_count: status.total),
+        set.from_list(failed_packages),
       )
     }
     _ -> unhandle(context, method)
@@ -224,6 +255,7 @@ fn compose_packages_installation(ctx: EmacsContext) -> CommandResult(String) {
       io.println_error("No packages declared, continuing with configuration")
       after_package_installation_handler(
         EmacsContext(..ctx, installed_packages_count: 0),
+        set.new(),
       )
       monadic.pure("")
     }
@@ -236,12 +268,15 @@ fn compose_packages_installation(ctx: EmacsContext) -> CommandResult(String) {
   }
 }
 
-fn after_package_installation_handler(ctx: EmacsContext) -> Nil {
+fn after_package_installation_handler(
+  ctx: EmacsContext,
+  failed_packages: set.Set(String),
+) -> Nil {
   let result = {
     use enable_debug <- bind(ctx.get("emacs-backbone-enable-debug"))
     use _ <- bind({
       EmacsContext(..ctx, enable_debug: enable_debug == "true")
-      |> compose_packages_configuration
+      |> compose_packages_configuration(failed_packages)
     })
     compose_finish(ctx)
   }
@@ -256,12 +291,24 @@ fn after_package_installation_handler(ctx: EmacsContext) -> Nil {
   Nil
 }
 
-fn compose_packages_configuration(ctx: EmacsContext) -> CommandResult(String) {
+fn compose_packages_configuration(
+  ctx: EmacsContext,
+  failed_packages: set.Set(String),
+) -> CommandResult(String) {
   use config_units <- bind(unit_macro.fetch_units(ctx))
 
-  let resolved = unit_utils.resolve_units(config_units, ctx.enable_debug)
+  let resolved =
+    case unit_utils.resolve_units(config_units, ctx.enable_debug) {
+      Ok(units) -> monadic.pure(units)
+      Error(err) -> monadic.fail_with(err)
+    }
 
-  use _ <- bind(unit_executor.execute_units(resolved, ctx))
+  use resolved_units <- bind(resolved)
+  use _ <- bind(unit_executor.execute_units(
+    resolved_units,
+    ctx,
+    failed_packages,
+  ))
 
   monadic.pure("")
 }

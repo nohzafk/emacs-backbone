@@ -11,8 +11,8 @@ pub type Dependency {
   UnitDep(name: String)
   // depends on environment variable
   EnvDep(var_name: String)
-  // TODO: depends on external check
-  // ExternalDep(check_script: String)
+  // depends on an executable being available on PATH
+  ExecutableDep(binary: String)
 }
 
 pub fn unit(name: String) {
@@ -37,5 +37,12 @@ pub fn deps_on_feature(unit: ConfigUnit, feature: String) {
   ConfigUnit(
     ..unit,
     deps: Some([FeatureDep(feature), ..{ unit.deps |> option.unwrap([]) }]),
+  )
+}
+
+pub fn deps_on_executable(unit: ConfigUnit, binary: String) {
+  ConfigUnit(
+    ..unit,
+    deps: Some([ExecutableDep(binary), ..{ unit.deps |> option.unwrap([]) }]),
   )
 }

@@ -306,7 +306,7 @@ pub fn fetch_packages(ctx: EmacsContext) -> CommandResult(List(Pkg)) {
 pub fn generate_macro_defined_packages(
   ctx: EmacsContext,
   packages_el_path: String,
-) -> CommandResult(List(String)) {
+) -> CommandResult(List(Pkg)) {
   // Fetch packages defined via the package! macro
   use pkgs <- bind(fetch_packages(ctx))
 
@@ -318,11 +318,7 @@ pub fn generate_macro_defined_packages(
 
   // Generate packages.el from the fetched packages
   case pkg_utils.genearte_packages(pkgs, packages_el_path, ctx.enable_debug) {
-    Ok(_) -> {
-      // Return the list of package names
-      let package_names = pkgs |> list.map(fn(pkg) { pkg.name })
-      monadic.pure(package_names)
-    }
+    Ok(_) -> monadic.pure(pkgs)
     Error(err) -> {
       let error_msg =
         "Failed to generate "

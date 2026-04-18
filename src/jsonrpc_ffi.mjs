@@ -142,10 +142,10 @@ function handleIncomingMessage(msg) {
 }
 
 /**
- * Track package configuration progress for package_installed messages.
- * The notification is emitted from each package's use-package :config block,
- * so it means the package reached Backbone's completion callback, not that it
- * is necessarily the current blocker for the remaining queue.
+ * Track package installation/activation progress for package_installed messages.
+ * The notification is emitted once Elpaca finishes a package's queue entry, so
+ * it means Backbone saw that package complete, not that it was necessarily the
+ * current blocker for the remaining queue.
  */
 function trackPackageInstallation(msg) {
     if (msg.method !== "package_installed" || !msg.params) return;
@@ -155,7 +155,7 @@ function trackPackageInstallation(msg) {
 
     const packageTracker = updatePackageTracker(packageName);
     console.error(
-        `[${packageTracker.installed.length}/${packageTracker.total}] configured: ${packageName}`,
+        `[${packageTracker.installed.length}/${packageTracker.total}] completed: ${packageName}`,
     );
 
     if (DEBUG) {
@@ -167,7 +167,7 @@ function trackPackageInstallation(msg) {
                       : "")
                 : "none";
         console.error(
-            `  ${packageTracker.pending.length} config callbacks remaining: ${pendingList}`,
+            `  ${packageTracker.pending.length} packages still pending: ${pendingList}`,
         );
     }
 }
@@ -177,26 +177,23 @@ function trackPackageInstallation(msg) {
 export function setupStdioServer(handler) {
     messageHandler = handler;
 
-    // Handle stdin close (Emacs killed the process)
-    const stdin = Bun.stdin.stream();
-    const reader = stdin.getReader();
+    // Use Node-style stdio streams so the transport runs under either Node or Bun.
+    process.stdin.on("data", (chunk) => {
+        // Pass raw bytes/buffer to parseMessages - it handles byte-accurate Content-Length parsing
+        parseMessages(chunk);
+    });
 
-    (async () => {
-        try {
-            while (true) {
-                const { done, value } = await reader.read();
-                if (done) {
-                    console.error("stdin closed, shutting down");
-                    process.exit(0);
-                }
-                // Pass raw bytes/buffer to parseMessages - it handles byte-accurate Content-Length parsing
-                parseMessages(value);
-            }
-        } catch (e) {
-            console.error("stdin read error:", e.message);
-            process.exit(1);
-        }
-    })();
+    process.stdin.on("end", () => {
+        console.error("stdin closed, shutting down");
+        process.exit(0);
+    });
+
+    process.stdin.on("error", (e) => {
+        console.error("stdin read error:", e.message);
+        process.exit(1);
+    });
+
+    process.stdin.resume();
 }
 
 export function sendNotification(method, params) {
