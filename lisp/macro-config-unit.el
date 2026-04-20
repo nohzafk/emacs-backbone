@@ -18,7 +18,8 @@ These defeat backbone's deterministic loading model.")
                          (format "config-unit! '%s': `%s' is an anti-pattern in backbone config. Use :requires/:after instead."
                                  unit-name (car form))
                          :warning))
-      (emacs-backbone--check-anti-patterns (cdr form) unit-name))))
+      (when (listp (cdr form))
+        (emacs-backbone--check-anti-patterns (cdr form) unit-name)))))
 
 (defun emacs-backbone-reset-units ()
   "Reset the global units list."
