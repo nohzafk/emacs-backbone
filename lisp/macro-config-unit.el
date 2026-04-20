@@ -5,6 +5,21 @@
 (defvar emacs-backbone-units '()
   "Global storage for config unit definitions used by the Backbone system.")
 
+(defconst emacs-backbone--anti-pattern-forms '(with-eval-after-load use-package)
+  "Forms that should not appear in config-unit! :config bodies.
+These defeat backbone's deterministic loading model.")
+
+(defun emacs-backbone--check-anti-patterns (forms unit-name)
+  "Walk FORMS recursively, warning if any anti-pattern is found in UNIT-NAME."
+  (dolist (form forms)
+    (when (consp form)
+      (when (memq (car form) emacs-backbone--anti-pattern-forms)
+        (display-warning 'emacs-backbone
+                         (format "config-unit! '%s': `%s' is an anti-pattern in backbone config. Use :requires/:after instead."
+                                 unit-name (car form))
+                         :warning))
+      (emacs-backbone--check-anti-patterns (cdr form) unit-name))))
+
 (defun emacs-backbone-reset-units ()
   "Reset the global units list."
   (setq emacs-backbone-units '()))
@@ -90,6 +105,9 @@ the :after specifications."
            (afters-expr (plist-get plist-pairs :after))
            (env-expr (plist-get plist-pairs :env))
            (executable-expr (plist-get plist-pairs :executable))
+           ;; Check for anti-patterns before stringifying
+           (_ (when body
+                (emacs-backbone--check-anti-patterns body unit-name)))
            ;; Convert body forms to a single string
            (body-string (when body
                           (format "%S" `(progn ,@body t)))))
