@@ -260,8 +260,7 @@ integration may need to be updated as well.
 ### Prerequisites
 
 - **Emacs** 29+ (with native compilation support recommended)
-- **Gleam** (for the backend orchestrator)
-- **Node.js** (JavaScript runtime for the compiled Gleam backend)
+- **Bun** (runtime for `generated/emacs-backbone.mjs`)
 
 ### Core Installation
 
@@ -270,12 +269,6 @@ integration may need to be updated as well.
    ```bash
    git clone git@github.com:nohzafk/emacs-backbone.git ~/.config/emacs
    cd ~/.config/emacs
-   ```
-
-2. **Build the Gleam backend:**
-
-   ```bash
-   gleam build
    ```
 
 ### User Configuration Setup
@@ -339,6 +332,11 @@ integration may need to be updated as well.
 
    The core will automatically load your configuration from `~/.config/backbone/`.
 
+### Runtime Model
+
+- **Normal users** need **Bun** and the checked-out repo. They do not need Gleam.
+- **Developers** need **Bun** and **Gleam**. Gleam is only used to regenerate `generated/emacs-backbone.mjs`.
+
 ### Example Configuration
 
 For a complete, real-world example of an Emacs Backbone configuration, see:
@@ -359,14 +357,14 @@ Directory containing your user configuration. Customize if you want to use a dif
 (setq emacs-backbone-user-directory "~/my-custom-config")
 ```
 
-#### `emacs-backbone-gleam-executable`
+#### `emacs-backbone-bun-executable`
 
-**Default:** Auto-detected (`/opt/homebrew/bin/gleam` or from PATH)
+**Default:** Auto-detected (`/opt/homebrew/bin/bun` or from PATH)
 
-Path to the Gleam executable:
+Path to the Bun executable used for `generated/emacs-backbone.mjs`:
 
 ```elisp
-(setq emacs-backbone-gleam-executable "/usr/local/bin/gleam")
+(setq emacs-backbone-bun-executable "/opt/homebrew/bin/bun")
 ```
 
 #### `emacs-backbone-enable-debug`
@@ -399,10 +397,66 @@ The Gleam backend is managed over stdio, so it exits with Emacs. There is no sep
 ### Building the Project
 
 ```bash
-gleam build              # Build the Gleam backend
-gleam run                # Run (requires backbone_port and emacs_port args)
+npm run build            # Regenerate generated/emacs-backbone.mjs
 gleam test               # Run tests
 ```
+
+### Generated Bun Backend
+
+The repo ships a committed Bun bundle so end users do not need Gleam
+installed at runtime. Emacs always starts Backbone with:
+
+```elisp
+(list emacs-backbone-bun-executable
+      (expand-file-name "generated/emacs-backbone.mjs" user-emacs-directory))
+```
+
+Regenerate that bundle during development with:
+
+```bash
+npm run build
+```
+
+This script:
+
+1. Runs `gleam build`
+2. Bundles the generated Gleam JavaScript into `generated/emacs-backbone.mjs`
+3. Produces the stable backend entrypoint Emacs runs with Bun
+
+Run the committed bundle directly with:
+
+```bash
+bun generated/emacs-backbone.mjs
+```
+
+If Emacs cannot find Bun in its environment, set
+`emacs-backbone-bun-executable` to an absolute path.
+
+### Developer Workflow
+
+Developers need both **Gleam** and **Bun**.
+
+When you change backend code under `src/`:
+
+1. Edit the Gleam source
+2. Run `npm run build`
+3. Run `gleam test`
+4. Commit both the source changes and the updated `generated/emacs-backbone.mjs`
+
+When you change only the Emacs Lisp side under `lisp/`, you usually do not need
+to rebuild the generated backend bundle.
+
+### Normal User Workflow
+
+Normal users need only **Bun**.
+
+1. Install Bun
+2. Clone this repo to `~/.config/emacs`
+3. Keep `generated/emacs-backbone.mjs` from the repo checkout
+4. Start Emacs
+
+No Gleam installation is required unless the user intends to modify the Gleam
+backend and regenerate the committed bundle.
 
 ### Project Structure
 
@@ -427,14 +481,14 @@ If you see "Emacs Backbone user config not found", ensure:
 2. You've tangled your `config.org` file
 3. The `emacs-backbone-user-directory` variable points to the correct location
 
-### Gleam process won't start
+### Backbone won't start
 
 Check:
 
-1. Gleam is installed: `which gleam`
-2. Node is installed: `which node`
-3. The `emacs-backbone-gleam-executable` variable is correct
-4. You rebuilt the backend after changing Gleam source: `gleam build`
+1. Bun is installed: `which bun`
+2. The `emacs-backbone-bun-executable` variable is correct
+3. `generated/emacs-backbone.mjs` exists in the repo
+4. If you changed Gleam source, you rebuilt the bundle with `npm run build`
 
 ### Package installation fails
 

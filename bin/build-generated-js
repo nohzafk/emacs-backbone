@@ -1,0 +1,35 @@
+#!/bin/sh
+
+set -eu
+
+script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+repo_root=$(CDPATH= cd -- "$script_dir/.." && pwd)
+
+if ! command -v gleam >/dev/null 2>&1; then
+  echo "error: gleam is not installed or not on PATH" >&2
+  exit 1
+fi
+
+if ! command -v bun >/dev/null 2>&1; then
+  echo "error: bun is not installed or not on PATH" >&2
+  exit 1
+fi
+
+cd "$repo_root"
+
+echo "==> Building Gleam backend"
+gleam build
+
+entry=$(find build/dev/javascript/emacs_backbone -maxdepth 1 -name 'gleam@@private_main_v*.mjs' | head -n 1)
+
+if [ -z "$entry" ]; then
+  echo "error: could not find Gleam JavaScript entrypoint under build/dev/javascript/emacs_backbone" >&2
+  exit 1
+fi
+
+mkdir -p generated
+
+echo "==> Bundling stable Bun entrypoint"
+bun build "$entry" --target bun --outfile generated/emacs-backbone.mjs
+
+echo "==> Wrote generated/emacs-backbone.mjs"

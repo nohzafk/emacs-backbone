@@ -20,12 +20,27 @@
 (defvar test-connection nil "The JSON-RPC connection.")
 (defvar test-fetch-var-called nil "Whether fetch-var was called.")
 (defvar test-fetch-var-results nil "Results from fetch-var calls.")
-(defvar test-backbone-gleam-executable
-  (or (and (file-executable-p "/opt/homebrew/bin/gleam")
-           "/opt/homebrew/bin/gleam")
-      (executable-find "gleam")
-      "gleam")
-  "Path to the Gleam executable used by the E2E test.")
+(defvar test-backbone-bun-executable
+  (or (and (file-executable-p "/opt/homebrew/bin/bun")
+           "/opt/homebrew/bin/bun")
+      (executable-find "bun")
+      "bun")
+  "Path to the Bun executable used by the E2E test.")
+(defvar test-backbone-command nil
+  "Command list used to launch the Backbone backend for E2E tests.
+When nil, the test uses `generated/emacs-backbone.mjs` via Bun.")
+
+(defun test-backbone--generated-command ()
+  "Return the Bun command for the generated backend bundle, or nil."
+  (let ((generated (expand-file-name "generated/emacs-backbone.mjs" default-directory)))
+    (when (and (file-exists-p generated)
+               (or (file-executable-p test-backbone-bun-executable)
+                   (executable-find test-backbone-bun-executable)))
+      (list test-backbone-bun-executable generated))))
+
+(defun test-backbone--default-command ()
+  "Return the default command list for the E2E backend."
+  (test-backbone--generated-command))
 
 ;; Simplified backbone connection class
 (defclass test-backbone-connection (jsonrpc-process-connection) ()
@@ -58,17 +73,21 @@
   (let* ((default-directory user-emacs-directory)
          (process-environment (cons "NO_COLOR=true" process-environment))
          (stderr-buffer (get-buffer-create "*test-backbone-stderr*"))
-         (conn (make-instance
-                'test-backbone-connection
-                :name "test-backbone"
-                :process (make-process
-                          :name "test-backbone"
-                          :command (list test-backbone-gleam-executable "run")
-                          :connection-type 'pipe
-                          :stderr stderr-buffer
-                          :noquery t)
-                :notification-dispatcher #'test--handle-notification
-                :request-dispatcher #'test--handle-request)))
+         (command (or test-backbone-command
+                      (test-backbone--default-command)))
+         (conn (if (null command)
+                   (error "Bun backend unavailable; ensure generated/emacs-backbone.mjs exists and Bun is installed")
+                 (make-instance
+                  'test-backbone-connection
+                  :name "test-backbone"
+                  :process (make-process
+                            :name "test-backbone"
+                            :command command
+                            :connection-type 'pipe
+                            :stderr stderr-buffer
+                            :noquery t)
+                  :notification-dispatcher #'test--handle-notification
+                  :request-dispatcher #'test--handle-request))))
     (setq test-connection conn)
     conn))
 

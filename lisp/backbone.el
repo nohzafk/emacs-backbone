@@ -40,19 +40,32 @@ configuration files (config/, clis/, etc.)."
   :type 'directory
   :group 'emacs-backbone)
 
-(defcustom emacs-backbone-gleam-executable
-  (or (and (file-executable-p "/opt/homebrew/bin/gleam")
-           "/opt/homebrew/bin/gleam")
-      (executable-find "gleam")
-      "gleam")
-  "Path to the Gleam executable.
-Defaults to /opt/homebrew/bin/gleam on macOS with Homebrew,
-or searches PATH for 'gleam' executable."
+(defcustom emacs-backbone-bun-executable
+  (or (and (file-executable-p "/opt/homebrew/bin/bun")
+           "/opt/homebrew/bin/bun")
+      (executable-find "bun")
+      "bun")
+  "Path to the Bun executable.
+Defaults to /opt/homebrew/bin/bun on macOS with Homebrew,
+or searches PATH for 'bun' executable."
   :type 'string
   :group 'emacs-backbone)
 
 (defclass emacs-backbone-connection (jsonrpc-process-connection) ()
   :documentation "JSON-RPC connection to the Backbone Gleam process.")
+
+(defun emacs-backbone--generated-backend-path ()
+  "Return the path to the committed Bun bundle."
+  (expand-file-name "generated/emacs-backbone.mjs" user-emacs-directory))
+
+(defun emacs-backbone--generated-backend-command ()
+  "Return the Bun command for the generated backend bundle, or nil."
+  (when-let* ((generated (and (file-exists-p (emacs-backbone--generated-backend-path))
+                              (emacs-backbone--generated-backend-path)))
+              (bun (or (and (file-executable-p emacs-backbone-bun-executable)
+                            emacs-backbone-bun-executable)
+                       (executable-find emacs-backbone-bun-executable))))
+    (list bun generated)))
 
 (defun emacs-backbone-running-p ()
   "Return non-nil when the Backbone JSON-RPC process is alive."
@@ -82,13 +95,21 @@ or searches PATH for 'gleam' executable."
   "Return a targeted startup hint based on ERR and STDERR-TAIL."
   (cond
    ((string-match-p "The program `bun` was not found" (or stderr-tail ""))
-    "[Backbone] Hint: install Bun or switch `[javascript].runtime` in gleam.toml to an available runtime.")
+    "[Backbone] Hint: install Bun or set `emacs-backbone-bun-executable` to the correct Bun path.")
    ((string-match-p "ReferenceError: Bun is not defined" (or stderr-tail ""))
-    "[Backbone] Hint: the backend is running under Node, but the transport still uses Bun-only APIs.")
+    "[Backbone] Hint: the generated backend must run under Bun, not Node.")
    ((string-match-p "No such file or directory" (format "%s" err))
-    "[Backbone] Hint: set `emacs-backbone-gleam-executable` to a valid Gleam binary.")
+    "[Backbone] Hint: regenerate `generated/emacs-backbone.mjs` with `./bin/build-generated-js` and ensure Bun is installed.")
    ((string-match-p "Program not found" (or stderr-tail ""))
-    "[Backbone] Hint: install the JavaScript runtime required by gleam.toml or change it to one that exists locally.")))
+    "[Backbone] Hint: install Bun and regenerate `generated/emacs-backbone.mjs` if needed.")))
+
+(defun emacs-backbone--report-missing-backend-command ()
+  "Report that the Bun backend command could not be resolved."
+  (emacs-backbone--log-diagnostic
+   (concat
+    "[Backbone] Startup failed: generated/emacs-backbone.mjs could not be launched. "
+    "Install Bun, regenerate the bundle with `./bin/build-generated-js`, "
+    "and set `emacs-backbone-bun-executable` if Emacs cannot find Bun.")))
 
 (defun emacs-backbone--report-startup-failure (err command)
   "Log a detailed startup diagnostic for ERR from COMMAND."
@@ -287,37 +308,39 @@ Return value is sent back as the JSON-RPC response."
     (let* ((default-directory user-emacs-directory)
            (process-environment (cons "NO_COLOR=true" process-environment))
            (stderr-buffer (get-buffer-create "*emacs-backbone-stderr*"))
-           (command (list emacs-backbone-gleam-executable "run")))
+           (command (emacs-backbone--generated-backend-command)))
       (setq emacs-backbone--initialized nil)
       (setq emacs-backbone--process nil)
-      (condition-case err
-          (let ((conn
-                 (make-instance
-                  'emacs-backbone-connection
-                  :name "emacs-backbone"
-                  :events-buffer-config `(:size ,(if emacs-backbone-enable-debug nil 0))
-                  :process (make-process
-                            :name "emacs-backbone"
-                            :command command
-                            :connection-type 'pipe
-                            :stderr stderr-buffer
-                            :noquery t)
-                  :notification-dispatcher #'emacs-backbone--handle-notification
-                  :request-dispatcher #'emacs-backbone--handle-request)))
-            (setq emacs-backbone--process conn)
-            ;; Send init request to Gleam.
-            (jsonrpc-async-request
-             conn "init" nil
-             :success-fn (lambda (_result)
-                           (setq emacs-backbone--initialized t))
-             :error-fn (lambda (init-err)
-                         (unless (emacs-backbone-running-p)
-                           (setq emacs-backbone--process nil))
-                         (emacs-backbone--report-startup-failure
-                          init-err command))))
-        (file-missing
-         (setq emacs-backbone--process nil)
-         (emacs-backbone--report-startup-failure err command))))))
+      (if (null command)
+          (emacs-backbone--report-missing-backend-command)
+        (condition-case err
+            (let ((conn
+                   (make-instance
+                    'emacs-backbone-connection
+                    :name "emacs-backbone"
+                    :events-buffer-config `(:size ,(if emacs-backbone-enable-debug nil 0))
+                    :process (make-process
+                              :name "emacs-backbone"
+                              :command command
+                              :connection-type 'pipe
+                              :stderr stderr-buffer
+                              :noquery t)
+                    :notification-dispatcher #'emacs-backbone--handle-notification
+                    :request-dispatcher #'emacs-backbone--handle-request)))
+              (setq emacs-backbone--process conn)
+              ;; Send init request to Gleam.
+              (jsonrpc-async-request
+               conn "init" nil
+               :success-fn (lambda (_result)
+                             (setq emacs-backbone--initialized t))
+               :error-fn (lambda (init-err)
+                           (unless (emacs-backbone-running-p)
+                             (setq emacs-backbone--process nil))
+                           (emacs-backbone--report-startup-failure
+                            init-err command))))
+          (file-missing
+           (setq emacs-backbone--process nil)
+           (emacs-backbone--report-startup-failure err command)))))))
 
 (defun emacs-backbone--begin-package-installation ()
   "Reset package completion state and start the no-progress timer."
