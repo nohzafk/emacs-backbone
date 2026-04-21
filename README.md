@@ -203,58 +203,6 @@ The `config-unit!` macro replaces `use-package`, `with-eval-after-load`, and sca
 
 This replaces the traditional Emacs configuration chaos with a **predictable, reproducible system**.
 
-## Architecture
-
-### Two-Directory Structure
-
-```text
-~/.config/emacs/                           # Core system (this repository)
-├── src/                                   # Gleam backend
-│   ├── emacs_backbone.gleam              # Entry point
-│   ├── jsonrpc.gleam                      # JSON-RPC communication over stdio
-│   ├── resolver.gleam                     # Dependency resolution
-│   └── ...
-├── lisp/                                  # Core Emacs Lisp framework
-│   ├── backbone.el                       # JSON-RPC client & lifecycle
-│   ├── macro-package.el                   # package! macro
-│   ├── macro-config-unit.el               # config-unit! macro
-│   └── ...
-├── init.el                                # Core initialization
-├── early-init.el                          # Early initialization
-├── gleam.toml                             # Gleam project config
-└── package.json                           # JavaScript module metadata
-
-~/.config/backbone/                 # User configuration (you create this)
-├── early-init.el                          # Your early initialization (optional)
-├── config.org                             # Your literate configuration
-├── config.el                              # Generated from config.org
-├── config/                                # Your helper utilities
-└── clis/                                  # Your CLI configurations
-```
-
-### Key Features
-
-- **Dependency Resolution**: Topological sorting ensures packages and config units load in correct order
-- **Literate Configuration**: Write your config in Org mode (`config.org`) with tangling support
-- **Declarative Packages**: Use `package!` macro for reproducible package management (Elpaca integration)
-- **Config Units**: Use `config-unit!` for dependency-ordered configuration blocks with feature, unit, env, and executable prerequisites
-- **Async Communication**: Bidirectional JSON-RPC over stdio between Gleam and Emacs
-
-### Elpaca Compatibility
-
-Emacs Backbone currently bootstraps against **Elpaca installer version `0.12`** in
-[lisp/package-manager.el](/Users/randallwang/projects/emacs-backbone/lisp/package-manager.el).
-
-This integration currently depends on some Elpaca implementation details, not
-just its public user-facing configuration surface. In particular, Backbone has
-workarounds for **split packages in a shared monorepo checkout**, such as
-`magit-section` living inside the shared `magit` repository checkout, and
-packages like `embark-consult` living inside the shared `embark` checkout.
-
-That means Elpaca upgrades should be treated as compatibility work: if Elpaca's
-shared-source, clone-skip, or dependency-detection internals change, Backbone's
-integration may need to be updated as well.
-
 ## Installation
 
 ### Prerequisites
@@ -316,26 +264,19 @@ integration may need to be updated as well.
    #+end_src
    ```
 
-3. **Tangle your configuration:**
-
-   ```bash
-   emacs --batch -l org ~/.config/backbone/config.org -f org-babel-tangle
-   ```
-
-   This generates `~/.config/backbone/config.el`.
-
-4. **Start Emacs:**
+3. **Start Emacs:**
 
    ```bash
    emacs
    ```
 
-   The core will automatically load your configuration from `~/.config/backbone/`.
+4. **Tangle and reload from inside Emacs:**
 
-### Runtime Model
+   - `C-h r e` to tangle `~/.config/backbone/config.org` into `config.el`
+   - `C-h r r` to reload the freshly tangled config
 
-- **Normal users** need **Bun** and the checked-out repo. They do not need Gleam.
-- **Developers** need **Bun** and **Gleam**. Gleam is only used to regenerate `generated/emacs-backbone.mjs`.
+   On first startup, Emacs Backbone may warn that `config.el` does not exist
+   yet. That is expected until you tangle it for the first time.
 
 ### Example Configuration
 
@@ -397,7 +338,7 @@ The Gleam backend is managed over stdio, so it exits with Emacs. There is no sep
 ### Building the Project
 
 ```bash
-npm run build            # Regenerate generated/emacs-backbone.mjs
+bun run build            # Regenerate generated/emacs-backbone.mjs
 gleam test               # Run tests
 ```
 
@@ -414,7 +355,7 @@ installed at runtime. Emacs always starts Backbone with:
 Regenerate that bundle during development with:
 
 ```bash
-npm run build
+bun run build
 ```
 
 This script:
@@ -439,7 +380,7 @@ Developers need both **Gleam** and **Bun**.
 When you change backend code under `src/`:
 
 1. Edit the Gleam source
-2. Run `npm run build`
+2. Run `bun run build`
 3. Run `gleam test`
 4. Commit both the source changes and the updated `generated/emacs-backbone.mjs`
 
@@ -458,18 +399,56 @@ Normal users need only **Bun**.
 No Gleam installation is required unless the user intends to modify the Gleam
 backend and regenerate the committed bundle.
 
+### Architecture
+
+#### Two-Directory Structure
+
+```text
+~/.config/emacs/                           # Core system (this repository)
+├── src/                                   # Gleam backend
+│   ├── emacs_backbone.gleam              # Entry point
+│   ├── jsonrpc.gleam                      # JSON-RPC communication over stdio
+│   ├── resolver.gleam                     # Dependency resolution
+│   └── ...
+├── lisp/                                  # Core Emacs Lisp framework
+│   ├── backbone.el                       # JSON-RPC client & lifecycle
+│   ├── macro-package.el                   # package! macro
+│   ├── macro-config-unit.el               # config-unit! macro
+│   └── ...
+├── init.el                                # Core initialization
+├── early-init.el                          # Early initialization
+├── gleam.toml                             # Gleam project config
+└── package.json                           # JavaScript module metadata
+
+~/.config/backbone/                        # User configuration (you create this)
+├── early-init.el                          # Your early initialization (optional)
+├── config.org                             # Your literate configuration
+├── config.el                              # Generated from config.org
+├── config/                                # Your helper utilities
+└── clis/                                  # Your CLI configurations
+```
+
+#### Elpaca Compatibility
+
+Emacs Backbone currently bootstraps against **Elpaca installer version `0.12`** in
+[lisp/package-manager.el](/Users/randall/projects/emacs-backbone/lisp/package-manager.el).
+
+This integration currently depends on some Elpaca implementation details, not
+just its public user-facing configuration surface. In particular, Backbone has
+workarounds for **split packages in a shared monorepo checkout**, such as
+`magit-section` living inside the shared `magit` repository checkout, and
+packages like `embark-consult` living inside the shared `embark` checkout.
+
+That means Elpaca upgrades should be treated as compatibility work: if Elpaca's
+shared-source, clone-skip, or dependency-detection internals change, Backbone's
+integration may need to be updated as well.
+
 ### Project Structure
 
 - `src/` - Gleam backend source code
 - `lisp/` - Core Emacs Lisp framework
 - `test/` - Gleam tests
 - `bin/` - Utility scripts
-
-### Testing
-
-```bash
-gleam test               # Run Gleam backend tests
-```
 
 ## Troubleshooting
 
@@ -488,7 +467,7 @@ Check:
 1. Bun is installed: `which bun`
 2. The `emacs-backbone-bun-executable` variable is correct
 3. `generated/emacs-backbone.mjs` exists in the repo
-4. If you changed Gleam source, you rebuilt the bundle with `npm run build`
+4. If you changed Gleam source, you rebuilt the bundle with `bun run build`
 
 ### Package installation fails
 
