@@ -156,7 +156,7 @@ The `config-unit!` macro replaces `use-package`, `with-eval-after-load`, and sca
 ```elisp
 ;; Basic configuration unit
 (config-unit! evil-config
-  :requires (evil)  ; Only execute when evil feature is available
+  :requires (evil)  ; Require evil before running this unit
   :config
   (evil-mode 1)
   (setq evil-want-C-u-scroll t))
@@ -185,7 +185,7 @@ The `config-unit!` macro replaces `use-package`, `with-eval-after-load`, and sca
 
 **Key features:**
 
-- **`:requires`** - Feature availability check (like `featurep`)
+- **`:requires`** - Require listed features before running the unit body
 - **`:after`** - Execution ordering between `config-unit!` names (not `package!` names); unlike `eval-after-load`, this is **guaranteed**
 - **`:env`** - Require environment variables to be set before the unit runs
 - **`:executable`** - Require external binaries to exist on `PATH` before the unit runs
